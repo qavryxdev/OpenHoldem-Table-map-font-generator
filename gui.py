@@ -187,14 +187,28 @@ class App(tk.Tk):
                 time.sleep(interval)
                 continue
 
-            # size gate
+            # size gate + auto-crop: CoinPoker (a podobne custom skiny) maluji
+            # vlastni titulkovou listu uvnitr Windows-client area. Kdyz je nas
+            # snimek vetsi nez targetsize, oriznem ho — vystredime horizontalne
+            # a top-offset = (H - target_h) (titlebar je nahore).
             z_target = self.table.sizes.get("targetsize")
             if z_target:
                 H, W = frame.shape[:2]
-                if (W, H) != (z_target.width, z_target.height):
-                    self.msg_q.put(("log", f"skip: client {W}x{H} ≠ target {z_target.width}x{z_target.height}"))
-                    time.sleep(interval)
-                    continue
+                tw, th = z_target.width, z_target.height
+                if (W, H) != (tw, th):
+                    if W >= tw and H >= th:
+                        x0 = (W - tw) // 2
+                        y0 = H - th
+                        frame = frame[y0:y0 + th, x0:x0 + tw].copy()
+                        if not getattr(self, "_logged_crop", False):
+                            self.msg_q.put(("log",
+                                f"auto-crop: client {W}x{H} -> {tw}x{th} @ ({x0},{y0})"))
+                            self._logged_crop = True
+                    else:
+                        self.msg_q.put(("log",
+                            f"skip: client {W}x{H} mensi nez target {tw}x{th}"))
+                        time.sleep(interval)
+                        continue
 
             # iterate regions
             for r in list(self.table.regions.values()):
