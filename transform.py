@@ -23,11 +23,13 @@ MAX_IMAGE_HEIGHT = 200
 # ---------------- color cube ----------------
 
 def color_unpack_argb(color: int) -> tuple[int, int, int, int]:
-    """OH stores region.color as 0xAARRGGBB (COLORREF w/ alpha in bits 24-31)."""
+    """OH stores region.color as a Windows COLORREF (0x00BBGGRR) with alpha
+    merged into bits 24-31 → layout 0xAABBGGRR, NOT 0xAARRGGBB. R is in the
+    LOW byte."""
     a = (color >> 24) & 0xff
-    r = (color >> 16) & 0xff
+    b = (color >> 16) & 0xff
     g = (color >> 8) & 0xff
-    b = color & 0xff
+    r = color & 0xff
     return a, r, g, b
 
 

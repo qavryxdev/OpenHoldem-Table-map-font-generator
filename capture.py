@@ -66,6 +66,10 @@ def capture_client(hwnd: int) -> np.ndarray:
 
     bits = bmp.GetBitmapBits(True)       # bytes, BGRA top-down
     arr = np.frombuffer(bits, dtype=np.uint8).reshape((h, w, 4)).copy()
+    # GDI nezachova alpha pri PrintWindow — vraci ji jako 0, ale OH uklada
+    # barvy v TM s alpha=0xff. Pri 4D ARGB-cube matchi by kazdy pixel byl
+    # mimo radius jen kvuli alpha distance. Nastav vse na opaque.
+    arr[..., 3] = 0xff
 
     # cleanup
     win32gui.DeleteObject(bmp.GetHandle())
