@@ -4,6 +4,7 @@ images. Also has a 'Prune' tab for duplicates.
 """
 from __future__ import annotations
 
+import os
 import queue
 import threading
 import time
@@ -259,12 +260,33 @@ class App(tk.Tk):
 
     # ---------- bookkeeping ----------
 
+    _LOG_MAX_BYTES = 2 * 1024 * 1024  # 2 MB strop — starsi radky odhodime
+
     def log(self, s: str) -> None:
         self.log_txt.insert("end", s + "\n")
         self.log_txt.see("end")
+        line = s + "\n"
         try:
+            try:
+                size = os.path.getsize("ohlearn.log")
+            except OSError:
+                size = 0
+            if size + len(line.encode("utf-8")) > self._LOG_MAX_BYTES:
+                keep = self._LOG_MAX_BYTES // 2
+                try:
+                    with open("ohlearn.log", "rb") as f:
+                        f.seek(max(0, size - keep))
+                        tail = f.read()
+                    # zahod prvni (mozna neuplnou) radku
+                    nl = tail.find(b"\n")
+                    if nl >= 0:
+                        tail = tail[nl + 1:]
+                    with open("ohlearn.log", "wb") as f:
+                        f.write(tail)
+                except OSError:
+                    pass
             with open("ohlearn.log", "a", encoding="utf-8") as f:
-                f.write(s + "\n")
+                f.write(line)
         except OSError:
             pass
 
