@@ -514,10 +514,12 @@ class App(tk.Tk):
         ctx = (f"region: {im.region}    size: {im.width}x{im.height}\n"
                f"nearest existing: {near_str}")
         rlow = im.region.lower()
+        is_suit = "suit" in rlow
+        is_rank = "rank" in rlow
         dlg = LabelDialog(self, "New image", im.pixels, ctx, default="", scale=2,
                           save_tm_cb=self._save,
-                          suit_picker="suit" in rlow,
-                          rank_picker="rank" in rlow)
+                          suit_picker=is_suit,
+                          rank_picker=is_rank)
         if dlg.result == "__DISCARD__":
             self.discarded_images.add((im.width, im.height, im.pixels.tobytes()))
             self.log(f"[-] discarded image for {im.region}")
@@ -525,7 +527,9 @@ class App(tk.Tk):
         if dlg.result is None:
             self.discarded_images.add((im.width, im.height, im.pixels.tobytes()))
             return
-        saved = learn.add_image(self.table, im, dlg.result)
+        overwrite = (is_suit and dlg.result in ("h", "d", "c", "s")) or \
+                    (is_rank and dlg.result in ("2","3","4","5","6","7","8","9","T","J","Q","K","A"))
+        saved = learn.add_image(self.table, im, dlg.result, overwrite=overwrite)
         self.log(f"[+] i${saved or dlg.result}  {im.width}x{im.height}")
         self._update_stats()
         self._refresh_region_markers()
