@@ -151,7 +151,6 @@ class CharSegment:
     x_end: int
     y_begin: int
     y_end: int
-    height_clipped: bool = False
 
 
 def segment_chars(character: np.ndarray) -> list[CharSegment]:
@@ -209,16 +208,13 @@ def segment_chars(character: np.ndarray) -> list[CharSegment]:
         x_begin, x_end, y_begin, y_end = shift_left_down_indexes(
             vert_band_left, seg_right - vert_band_left + 1, H, background, character
         )
-        clipped = False
         if y_end - y_begin > MAX_SINGLE_CHAR_HEIGHT:
             y_begin = y_end - MAX_SINGLE_CHAR_HEIGHT
-            clipped = True
         hexmash, xs = calc_hexmash(x_begin, x_end, y_begin, y_end, character)
         if hexmash:
             segments.append(CharSegment(
                 hexmash=hexmash, xvals=xs,
-                x_begin=x_begin, x_end=x_end, y_begin=y_begin, y_end=y_end,
-                height_clipped=clipped,
+                x_begin=x_begin, x_end=x_end, y_begin=y_begin, y_end=y_end
             ))
         vert_band_left = seg_right + 1
         while vert_band_left < W and background[vert_band_left]:
