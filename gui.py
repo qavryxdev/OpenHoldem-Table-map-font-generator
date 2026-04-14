@@ -517,14 +517,6 @@ class App(tk.Tk):
             )
             saved = learn.add_image(self.table, im_obs, label, overwrite=overwrite)
             self.log(f"[+] i${saved or label}  {w_px}x{h_px}  (from cardface region)")
-            # debug: dump PNG co presne ukladame (at user overi shodu s regionem)
-            try:
-                import os
-                os.makedirs("debug_dumps", exist_ok=True)
-                dump = PILImage.fromarray(g.pixels, mode="RGBA")
-                dump.save(f"debug_dumps/{g.region}_{saved or label}.png")
-            except Exception as _e:
-                pass
         self._update_stats()
         self._refresh_region_markers()
 
