@@ -164,26 +164,37 @@ class App(tk.Tk):
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _check_oversized_t_regions(self) -> None:
-        """Varuje na T regiony, ktere presahuji MAX_SINGLE_CHAR_HEIGHT/WIDTH
-        limity OpenScraperu/OpenHoldem CTransform — T-font matching takove
-        regiony nikdy nesestavi spravne, mely by byt I-transform."""
+        """Varuje na T regiony presahujici CTransform limit (height 24px).
+        T-font hexmash u nich neuspesne (orez top radky) — patri na I-transform."""
         max_h = tx.MAX_SINGLE_CHAR_HEIGHT
-        max_w = tx.MAX_SINGLE_CHAR_WIDTH
         bad: list[tuple[str, int, int, str]] = []
         for name, r in self.table.regions.items():
             if not (r.transform and r.transform[0] == "T"):
                 continue
             h = r.bottom - r.top + 1
             w = r.right - r.left + 1
-            # sirka muze obsahovat vic znaku -> nekontrolujem, ale vyska je per-char limit
             if h > max_h:
                 bad.append((name, w, h, r.transform))
         if not bad:
             return
-        self.log(f"! {len(bad)} T regionu presahuje OH CTransform limit "
-                 f"(max height {max_h}px) — T-font scrape neuspecha, zmen na I:")
+        banner = "=" * 70
+        self.log(banner)
+        self.log(f"!!! VAROVANI: {len(bad)} T regionu prilis VELKYCH pro "
+                 f"OpenScrape (max height {max_h}px) !!!")
+        self.log("T-font scrape u nich NEBUDE fungovat — zmen transform na I.")
+        self.log(banner)
         for name, w, h, tr in bad:
             self.log(f"    {name:25} {w}x{h}  ({tr})")
+        self.log(banner)
+        # Modalni messagebox se seznamem, at to user nemuze prehlednout.
+        lines = "\n".join(f"  {n}  {w}x{h}  ({tr})" for n, w, h, tr in bad)
+        msg = (f"{len(bad)} T regionu presahuje limit OpenScrape "
+               f"(MAX_SINGLE_CHAR_HEIGHT = {max_h} px).\n"
+               f"T-font matching u nich nemuze fungovat — zmen transform na I "
+               f"v OpenScrape.\n\n{lines}")
+        # after/idle aby se dialog objevil az po postaveni hlavniho okna
+        self.after(200, lambda: messagebox.showwarning(
+            "Pozor: T regiony moc velke pro OpenScrape", msg))
 
     def _on_close(self):
         self.running = False
