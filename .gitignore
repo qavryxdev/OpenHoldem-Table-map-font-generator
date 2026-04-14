@@ -7,3 +7,8 @@ ohlearn.log
 *.tm
 *.tmn
 *.osdb2
+build/
+dist/
+*.spec
+debug_dumps/
+frame_diag.png

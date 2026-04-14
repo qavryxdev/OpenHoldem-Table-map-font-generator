@@ -1,24 +1,51 @@
 """python -m ohlearn [tm_path]
 
-Bez argumentu vezme první *.tm/*.tmn/*.osdb2 v CWD.
+Bez argumentu vezme první *.tm/*.tmn/*.osdb2 v CWD (a v adresari kde lezi exe).
+Pri frozen exe kazda vyjimka jde do messageboxu — jinak bychom u --windowed
+buildu nevideli, proc se aplikace nespustila.
 """
 import os
 import sys
+import traceback
 
-import gui
-import tm as tmmod
+
+def _error_box(title: str, msg: str) -> None:
+    try:
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(0, msg, title, 0x10)
+    except Exception:
+        print(msg, file=sys.stderr)
 
 
 def main() -> int:
+    import tm as tmmod
+    import gui
+
+    # pri frozen exe (PyInstaller) je CWD tam odkud byl exe spusteny.
+    # Zkusime CWD a pak adresar exe.
+    search_dirs = [os.getcwd()]
+    if getattr(sys, "frozen", False):
+        search_dirs.append(os.path.dirname(sys.executable))
+
     if len(sys.argv) >= 2:
         path = sys.argv[1]
     else:
-        path = tmmod.find_tm_in_cwd(os.getcwd())
+        path = None
+        for d in search_dirs:
+            p = tmmod.find_tm_in_cwd(d)
+            if p:
+                path = p
+                break
     if not path:
-        print("chyba: v pracovním adresáři není žádný .tm/.tmn/.osdb2 soubor", file=sys.stderr)
+        _error_box(
+            "OHLearn",
+            "Zadny .tm/.tmn/.osdb2 soubor v adresari:\n  "
+            + "\n  ".join(search_dirs)
+            + "\n\nSpust exe z adresare s TM, nebo predaj cestu jako argument."
+        )
         return 2
     if not os.path.isfile(path):
-        print(f"chyba: {path} neexistuje", file=sys.stderr)
+        _error_box("OHLearn", f"Soubor neexistuje:\n{path}")
         return 2
     print(f"loading {path} ...")
     table = tmmod.load(path)
@@ -30,4 +57,10 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except SystemExit:
+        raise
+    except BaseException:
+        _error_box("OHLearn — unhandled error", traceback.format_exc())
+        sys.exit(1)
