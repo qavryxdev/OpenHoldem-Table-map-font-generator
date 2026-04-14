@@ -17,6 +17,7 @@ from PIL import ImageTk
 import capture
 import learn
 import tm as tmmod
+import transform as tx
 
 
 SCALE = 4   # glyph preview zoom
@@ -157,9 +158,32 @@ class App(tk.Tk):
 
         self._build_ui()
         self._refresh_windows()
+        self._check_oversized_t_regions()
         self.after(100, self._pump_messages)
         self.bind_all("<Control-s>", lambda _e: self._save())
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _check_oversized_t_regions(self) -> None:
+        """Varuje na T regiony, ktere presahuji MAX_SINGLE_CHAR_HEIGHT/WIDTH
+        limity OpenScraperu/OpenHoldem CTransform — T-font matching takove
+        regiony nikdy nesestavi spravne, mely by byt I-transform."""
+        max_h = tx.MAX_SINGLE_CHAR_HEIGHT
+        max_w = tx.MAX_SINGLE_CHAR_WIDTH
+        bad: list[tuple[str, int, int, str]] = []
+        for name, r in self.table.regions.items():
+            if not (r.transform and r.transform[0] == "T"):
+                continue
+            h = r.bottom - r.top + 1
+            w = r.right - r.left + 1
+            # sirka muze obsahovat vic znaku -> nekontrolujem, ale vyska je per-char limit
+            if h > max_h:
+                bad.append((name, w, h, r.transform))
+        if not bad:
+            return
+        self.log(f"! {len(bad)} T regionu presahuje OH CTransform limit "
+                 f"(max height {max_h}px) — T-font scrape neuspecha, zmen na I:")
+        for name, w, h, tr in bad:
+            self.log(f"    {name:25} {w}x{h}  ({tr})")
 
     def _on_close(self):
         self.running = False
