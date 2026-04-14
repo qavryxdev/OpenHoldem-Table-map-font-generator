@@ -164,24 +164,24 @@ class App(tk.Tk):
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _check_oversized_t_regions(self) -> None:
-        """Sestavi set jmen T regionu, ktere presahuji CTransform limit
-        (MAX_SINGLE_CHAR_HEIGHT=24). Tyto se z uceni preskakuji — T-font
-        scrape je na nich stejne nefunkcni, ulozeny hexmash by byl zkomoleny."""
+        """Varuje na T regiony, ktere presahuji MAX_SINGLE_CHAR_HEIGHT/WIDTH
+        limity OpenScraperu/OpenHoldem CTransform — T-font matching takove
+        regiony nikdy nesestavi spravne, mely by byt I-transform."""
         max_h = tx.MAX_SINGLE_CHAR_HEIGHT
-        self.oversized_t: set[str] = set()
+        max_w = tx.MAX_SINGLE_CHAR_WIDTH
         bad: list[tuple[str, int, int, str]] = []
         for name, r in self.table.regions.items():
             if not (r.transform and r.transform[0] == "T"):
                 continue
             h = r.bottom - r.top + 1
             w = r.right - r.left + 1
+            # sirka muze obsahovat vic znaku -> nekontrolujem, ale vyska je per-char limit
             if h > max_h:
-                self.oversized_t.add(name)
                 bad.append((name, w, h, r.transform))
         if not bad:
             return
         self.log(f"! {len(bad)} T regionu presahuje OH CTransform limit "
-                 f"(max height {max_h}px) — PRESKAKUJI z uceni, zmen na I:")
+                 f"(max height {max_h}px) — T-font scrape neuspecha, zmen na I:")
         for name, w, h, tr in bad:
             self.log(f"    {name:25} {w}x{h}  ({tr})")
 
@@ -461,10 +461,6 @@ class App(tk.Tk):
         is_t = bool(r.transform and r.transform[0] == "T")
         n_t = 1 if is_t else 0
         n_new = 0
-        # T region presahujici OH CTransform limit neucime — hexmash by byl
-        # zkomoleny (ubrize top radky pres MAX_SINGLE_CHAR_HEIGHT)
-        if is_t and r.name in getattr(self, "oversized_t", set()):
-            return n_t, n_new
         if is_t and self.autotune_var.get():
             crop = frame[r.top:r.bottom + 1, r.left:r.right + 1]
             if crop.size > 0:
