@@ -115,38 +115,9 @@ class App(tk.Tk):
 
         self._build_ui()
         self._refresh_windows()
-        self.after(300, self._warn_card_t_regions)
         self.after(100, self._pump_messages)
         self.bind_all("<Control-s>", lambda _e: self._save())
         self.protocol("WM_DELETE_WINDOW", self._on_close)
-
-    def _warn_card_t_regions(self):
-        """Pop a warning if any card region (community c*card* or hole
-        p*card*) uses a T-transform. OpenScrape recommends I-transform for
-        card faces — T (font scraping) is fragile for variable-color suits
-        and anti-aliased pips."""
-        import re as _re
-        bad: list[str] = []
-        for name, r in self.table.regions.items():
-            low = name.lower()
-            if not (_re.match(r"^c\d+card", low) or _re.match(r"^p\d+card", low)):
-                continue
-            if r.transform and r.transform[0] == "T":
-                bad.append(f"{name}  ({r.transform})")
-        if not bad:
-            return
-        preview = "\n".join(bad[:15])
-        more = f"\n... and {len(bad) - 15} more" if len(bad) > 15 else ""
-        messagebox.showwarning(
-            "Card regions using T-transform",
-            "OpenScrape does not recommend T-transform (font scraping) for "
-            "card regions — use I-transform (image matching) instead.\n\n"
-            "T-scrape depends on stable glyph colors/shapes, but card suits "
-            "and rank antialiasing vary between skins and frames, producing "
-            "unreliable matches.\n\n"
-            "Affected regions:\n" + preview + more +
-            "\n\nChange their transform to I in the TM file."
-        )
 
     def _on_close(self):
         self.running = False
