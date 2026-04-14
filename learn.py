@@ -156,6 +156,10 @@ def observe_region(frame_bgra: np.ndarray, region: tmmod.Region,
             if seg_w > 0.85 * W_region and mask_density > 0.5:
                 _last_debug["skipped_blob"] = _last_debug.get("skipped_blob", 0) + 1
                 continue
+            # glyph musel byt usekavan (height > OH limit) — neuspesne by se ulozil
+            # zkomoleny hexmash, radeji vubec neposilame do UI k ulozeni
+            if s.height_clipped:
+                continue
             # exact hexmash match — already known
             if s.hexmash in existing:
                 _last_debug["skipped_exact"] += 1
