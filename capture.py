@@ -12,6 +12,7 @@ import win32gui
 import win32ui
 
 user32 = ctypes.windll.user32
+PW_CLIENTONLY = 0x00000001
 PW_RENDERFULLCONTENT = 0x00000002
 
 
@@ -58,7 +59,7 @@ def capture_client(hwnd: int) -> np.ndarray:
 
     # PrintWindow with PW_CLIENTONLY | PW_RENDERFULLCONTENT
     result = user32.PrintWindow(hwnd, save_dc.GetSafeHdc(),
-                                win32con.PW_CLIENTONLY | PW_RENDERFULLCONTENT)
+                                PW_CLIENTONLY | PW_RENDERFULLCONTENT)
     if not result:
         # fallback to BitBlt
         save_dc.BitBlt((0, 0), (w, h), mfc_dc, (0, 0), win32con.SRCCOPY)
