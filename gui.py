@@ -204,7 +204,7 @@ class App(tk.Tk):
         typebar.pack(fill="x")
         tk.Label(typebar, text="jen typ:").pack(side="left")
         used = sorted({r.transform for r in self.table.regions.values()
-                       if r.transform and r.transform[0] == "T"})
+                       if r.transform and r.transform[0] in ("T", "I")})
         for tr in used:
             tk.Button(typebar, text=tr, width=4,
                       command=lambda t=tr: self._select_by_transform(t)
@@ -402,11 +402,7 @@ class App(tk.Tk):
             time.sleep(interval)
 
     def _process_region(self, frame, r) -> tuple[int, int]:
-        kind = (r.transform or "")[:1]
-        # I-transform regiony jsou docasne deaktivovane — uci se jen text (T)
-        if kind == "I":
-            return (0, 0)
-        is_t = kind == "T"
+        is_t = bool(r.transform and r.transform[0] == "T")
         n_t = 1 if is_t else 0
         n_new = 0
         if is_t and self.autotune_var.get():
