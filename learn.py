@@ -41,7 +41,7 @@ IMAGE_MATCH_FRACTION = 0.65         # OH ITypeTransform: 65% pixel threshold
 # tolerance byly povazovany za NOVE (a ulozeny). Pri ostrem matchi pak OH
 # scraper se svou sirsi toleranci pohodlne matchne. Hodnota = zlomek z
 # konfigurovane tolerance TM; typicky 0.7 → uc pri 70% prahu.
-LEARN_TOLERANCE_RATIO = 0.7
+LEARN_TOLERANCE_RATIO = 0.55
 
 _last_debug: dict = {}
 
