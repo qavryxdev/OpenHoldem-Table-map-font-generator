@@ -16,7 +16,6 @@ from PIL import ImageTk
 
 import capture
 import learn
-import ocr
 import tm as tmmod
 import transform as tx
 
@@ -216,13 +215,6 @@ class App(tk.Tk):
         self.autotune_var = tk.BooleanVar(value=False)
         tk.Checkbutton(cmd, text="Auto-tune cube (RGB/radius)",
                        variable=self.autotune_var).pack(side="left", padx=12)
-        ocr_ok = ocr.available()
-        self.ocr_var = tk.BooleanVar(value=ocr_ok)
-        tk.Checkbutton(cmd,
-                       text=f"Auto-suggest (OCR){'' if ocr_ok else ' — nedostupny'}",
-                       variable=self.ocr_var,
-                       state=("normal" if ocr_ok else "disabled")
-                       ).pack(side="left", padx=12)
 
         stats = tk.LabelFrame(self, text="Tablemap stats")
         stats.pack(fill="x", padx=6, pady=6)
@@ -518,13 +510,7 @@ class App(tk.Tk):
         rlow = g.region.lower()
         is_suit = "suit" in rlow
         is_rank = "rank" in rlow
-        suggest = ""
-        if self.ocr_var.get():
-            suggest = ocr.guess_glyph(g.pixels, g.region)
-            if suggest:
-                ctx += f"\nOCR: {suggest!r}"
         dlg = LabelDialog(self, "New glyph", g.pixels, ctx,
-                          default=suggest,
                           save_tm_cb=self._save,
                           suit_picker=is_suit,
                           rank_picker=is_rank)
@@ -572,12 +558,7 @@ class App(tk.Tk):
         rlow = im.region.lower()
         is_suit = "suit" in rlow
         is_rank = "rank" in rlow
-        suggest = ""
-        if self.ocr_var.get():
-            suggest = ocr.guess_glyph(im.pixels, im.region)
-            if suggest:
-                ctx += f"\nOCR: {suggest!r}"
-        dlg = LabelDialog(self, "New image", im.pixels, ctx, default=suggest, scale=2,
+        dlg = LabelDialog(self, "New image", im.pixels, ctx, default="", scale=2,
                           save_tm_cb=self._save,
                           suit_picker=is_suit,
                           rank_picker=is_rank)
