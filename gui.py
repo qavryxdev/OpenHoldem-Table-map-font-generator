@@ -146,6 +146,9 @@ class App(tk.Tk):
         self.start_btn.pack(side="left")
         tk.Button(cmd, text="Save TM", command=self._save).pack(side="left", padx=4)
         tk.Button(cmd, text="Prune duplicates…", command=self._prune).pack(side="left", padx=4)
+        self.autotune_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(cmd, text="Auto-tune cube (RGB/radius)",
+                       variable=self.autotune_var).pack(side="left", padx=12)
 
         stats = tk.LabelFrame(self, text="Tablemap stats")
         stats.pack(fill="x", padx=6, pady=6)
@@ -373,7 +376,7 @@ class App(tk.Tk):
         is_t = bool(r.transform and r.transform[0] == "T")
         n_t = 1 if is_t else 0
         n_new = 0
-        if is_t:
+        if is_t and self.autotune_var.get():
             crop = frame[r.top:r.bottom + 1, r.left:r.right + 1]
             if crop.size > 0:
                 old_c, old_r = r.color, r.radius
