@@ -57,11 +57,11 @@ def _font_tolerance(table: tmmod.Tablemap, group: int) -> float:
 
 
 def _fuzzy_font_match(seg_xs: list[int], fonts: dict[str, tmmod.Font],
-                      tolerance: float, width_slack: int = 1) -> str | None:
-    """Reproduces GetBestHammingDistance: weighted_hd = sum(hamming) / sum(lit_pixels).
-    Returns matched char if best_weighted_hd < tolerance, else None.
-
-    Allow segment to be up to +width_slack cols wider than font (font = prefix).
+                      tolerance: float) -> str | None:
+    """Reproduces OH GetBestHammingDistance: font.x_count must be <= seg_len,
+    font compared as PREFIX of segment (no width slack). weighted_hd =
+    sum(hamming) / sum(lit_pixels). Tohle je 1:1 co dela OH scraper — kdyz
+    tady non-match, OH taky nezmatchne → glyph se MUSI naucit jako novy.
     """
     if tolerance <= 0 or not seg_xs:
         return None
@@ -69,7 +69,8 @@ def _fuzzy_font_match(seg_xs: list[int], fonts: dict[str, tmmod.Font],
     best_ch: str | None = None
     seg_len = len(seg_xs)
     for f in fonts.values():
-        if f.x_count > seg_len or seg_len - f.x_count > width_slack:
+        # OH porovnava font jako PREFIX segmentu — font nikdy nesmi byt sirsi
+        if f.x_count > seg_len:
             continue
         tot = 0.000001
         lit = 0.000001
@@ -80,8 +81,6 @@ def _fuzzy_font_match(seg_xs: list[int], fonts: dict[str, tmmod.Font],
         if whd < tolerance and whd < best_hd:
             best_hd = whd
             best_ch = f.ch
-            if tot > lit:
-                break
     return best_ch
 
 
