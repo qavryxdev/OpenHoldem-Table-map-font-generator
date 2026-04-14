@@ -325,12 +325,31 @@ class App(tk.Tk):
 
     # ---------- bookkeeping ----------
 
+    _LOG_MAX_BYTES = 2 * 1024 * 1024  # 2 MB strop — starsi radky odhodime
+
     def log(self, s: str) -> None:
         self.log_txt.insert("end", s + "\n")
         self.log_txt.see("end")
         try:
-            with open("ohlearn.log", "a", encoding="utf-8") as f:
-                f.write(s + "\n")
+            import os
+            path = "ohlearn.log"
+            line = s + "\n"
+            # kdyz by soubor po zapisu presahl limit, rotuj: nech posledni ~1MB
+            if os.path.exists(path):
+                size = os.path.getsize(path)
+                if size + len(line.encode("utf-8")) > self._LOG_MAX_BYTES:
+                    keep = self._LOG_MAX_BYTES // 2
+                    with open(path, "rb") as f:
+                        f.seek(max(0, size - keep))
+                        tail = f.read()
+                    # zahoď moznou pulku radky na zacatku
+                    nl = tail.find(b"\n")
+                    if nl >= 0:
+                        tail = tail[nl + 1:]
+                    with open(path, "wb") as f:
+                        f.write(tail)
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(line)
         except OSError:
             pass
 
