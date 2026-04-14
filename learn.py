@@ -37,6 +37,12 @@ class ImageObservation:
 DEFAULT_FUZZY_TOLERANCE = 0.05      # OH default
 IMAGE_MATCH_FRACTION = 0.65         # OH ITypeTransform: 65% pixel threshold
 
+# Uceni pouziva prisnejsi hranici nez OH scraper, aby variantу na okraji
+# tolerance byly povazovany za NOVE (a ulozeny). Pri ostrem matchi pak OH
+# scraper se svou sirsi toleranci pohodlne matchne. Hodnota = zlomek z
+# konfigurovane tolerance TM; typicky 0.7 → uc pri 70% prahu.
+LEARN_TOLERANCE_RATIO = 0.7
+
 _last_debug: dict = {}
 
 
@@ -124,7 +130,7 @@ def observe_region(frame_bgra: np.ndarray, region: tmmod.Region,
             _last_debug["mask_px"] = int(mask.sum())
             _last_debug["n_segs"] = 0
             _last_debug["n_existing"] = len(table.fonts[group])
-            _last_debug["fuzzy_tol"] = _font_tolerance(table, group)
+            _last_debug["fuzzy_tol"] = _font_tolerance(table, group) * LEARN_TOLERANCE_RATIO
             _last_debug["skipped_exact"] = 0
             _last_debug["skipped_fuzzy"] = 0
             _last_debug["skipped_blob"] = 1
@@ -136,7 +142,7 @@ def observe_region(frame_bgra: np.ndarray, region: tmmod.Region,
         _last_debug["mask_px"] = int(mask.sum())
         _last_debug["n_segs"] = len(segs)
         _last_debug["n_existing"] = len(existing)
-        _last_debug["fuzzy_tol"] = fuzzy_tol
+        _last_debug["fuzzy_tol"] = fuzzy_tol * LEARN_TOLERANCE_RATIO
         _last_debug["skipped_exact"] = 0
         _last_debug["skipped_fuzzy"] = 0
         W_region = crop.shape[1]
@@ -156,7 +162,11 @@ def observe_region(frame_bgra: np.ndarray, region: tmmod.Region,
             # fuzzy match: if the TM is configured for fuzzy/numeric tolerance
             # and any existing glyph is within weighted-HD tolerance, treat as
             # already covered (don't propose).
-            if fuzzy_tol > 0 and _fuzzy_font_match(s.xvals, existing, fuzzy_tol):
+            # pri uceni pouzivame o neco prisnejsi prah (LEARN_TOLERANCE_RATIO)
+            # → hranicni varianty jsou pro nas "nove" a ulozime je, OH scraper
+            # je pak v bezne toleranci pohodlne matchne
+            learn_tol = fuzzy_tol * LEARN_TOLERANCE_RATIO
+            if learn_tol > 0 and _fuzzy_font_match(s.xvals, existing, learn_tol):
                 _last_debug["skipped_fuzzy"] += 1
                 continue
             # preview = cely region z TM (neorezavat na segment),
