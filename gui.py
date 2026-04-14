@@ -468,6 +468,7 @@ class App(tk.Tk):
                     f"! VAROVANI: region {r.name} by se musel usekavat "
                     f"(glyph vyssi nez {tx.MAX_SINGLE_CHAR_HEIGHT}px) — "
                     f"T-font matching neni spolehlivy, preved na I-transform"))
+                self.msg_q.put(("warn_clip", (r.name, clipped)))
         for g in glyphs:
             key = (g.font_group, g.hexmash)
             if key in self.discarded_glyphs or key in self.pending_glyphs:
@@ -498,6 +499,15 @@ class App(tk.Tk):
                     self._handle_glyph(payload)
                 elif kind == "image":
                     self._handle_image(payload)
+                elif kind == "warn_clip":
+                    name, n = payload
+                    messagebox.showwarning(
+                        "Region presahuje OpenScrape limit",
+                        f"Region '{name}' obsahuje glyph vyssi nez "
+                        f"{tx.MAX_SINGLE_CHAR_HEIGHT} px — aplikace musi "
+                        f"useknout horni radky ({n} glyph(u) v tomto cyklu).\n\n"
+                        f"T-font matching u nej nebude spolehlivy. "
+                        f"Zmen v OpenScrape transform z T na I.")
         except queue.Empty:
             pass
         self.after(100, self._pump_messages)
