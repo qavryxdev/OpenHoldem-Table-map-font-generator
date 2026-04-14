@@ -115,9 +115,38 @@ class App(tk.Tk):
 
         self._build_ui()
         self._refresh_windows()
+        self.after(300, self._warn_card_t_regions)
         self.after(100, self._pump_messages)
         self.bind_all("<Control-s>", lambda _e: self._save())
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _warn_card_t_regions(self):
+        """Pop a warning if any card region (community c*card* or hole
+        p*card*) uses a T-transform. OpenScrape recommends I-transform for
+        card faces — T (font scraping) is fragile for variable-color suits
+        and anti-aliased pips."""
+        import re as _re
+        bad: list[str] = []
+        for name, r in self.table.regions.items():
+            low = name.lower()
+            if not (_re.match(r"^c\d+card", low) or _re.match(r"^p\d+card", low)):
+                continue
+            if r.transform and r.transform[0] == "T":
+                bad.append(f"{name}  ({r.transform})")
+        if not bad:
+            return
+        preview = "\n".join(bad[:15])
+        more = f"\n... and {len(bad) - 15} more" if len(bad) > 15 else ""
+        messagebox.showwarning(
+            "Card regions using T-transform",
+            "OpenScrape does not recommend T-transform (font scraping) for "
+            "card regions — use I-transform (image matching) instead.\n\n"
+            "T-scrape depends on stable glyph colors/shapes, but card suits "
+            "and rank antialiasing vary between skins and frames, producing "
+            "unreliable matches.\n\n"
+            "Affected regions:\n" + preview + more +
+            "\n\nChange their transform to I in the TM file."
+        )
 
     def _on_close(self):
         self.running = False
@@ -175,7 +204,7 @@ class App(tk.Tk):
         typebar.pack(fill="x")
         tk.Label(typebar, text="jen typ:").pack(side="left")
         used = sorted({r.transform for r in self.table.regions.values()
-                       if r.transform and r.transform[0] in ("T", "I")})
+                       if r.transform and r.transform[0] == "T"})
         for tr in used:
             tk.Button(typebar, text=tr, width=4,
                       command=lambda t=tr: self._select_by_transform(t)
@@ -373,7 +402,11 @@ class App(tk.Tk):
             time.sleep(interval)
 
     def _process_region(self, frame, r) -> tuple[int, int]:
-        is_t = bool(r.transform and r.transform[0] == "T")
+        kind = (r.transform or "")[:1]
+        # I-transform regiony jsou docasne deaktivovane — uci se jen text (T)
+        if kind == "I":
+            return (0, 0)
+        is_t = kind == "T"
         n_t = 1 if is_t else 0
         n_new = 0
         if is_t and self.autotune_var.get():
