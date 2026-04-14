@@ -484,10 +484,12 @@ class App(tk.Tk):
                f"hexmash: {g.hexmash}\n"
                f"width  : {len(g.xvals)} cols")
         rlow = g.region.lower()
+        is_suit = "suit" in rlow
+        is_rank = "rank" in rlow
         dlg = LabelDialog(self, "New glyph", g.pixels, ctx,
                           save_tm_cb=self._save,
-                          suit_picker="suit" in rlow,
-                          rank_picker="rank" in rlow)
+                          suit_picker=is_suit,
+                          rank_picker=is_rank)
         if dlg.result == "__DISCARD__":
             self.discarded_glyphs.add((g.font_group, g.hexmash))
             self.log(f"[-] discarded glyph t{g.font_group}$ hexmash={g.hexmash}")
@@ -497,8 +499,10 @@ class App(tk.Tk):
             self.discarded_glyphs.add((g.font_group, g.hexmash))
             return
         label = dlg.result[0]  # OH fonts store a single char
-        learn.add_glyph(self.table, g, label)
-        self.log(f"[+] t{g.font_group}${label}  hexmash={g.hexmash}")
+        overwrite = (is_suit and label in ("h", "d", "c", "s")) or \
+                    (is_rank and label in ("2","3","4","5","6","7","8","9","T","J","Q","K","A"))
+        ok = learn.add_glyph(self.table, g, label, overwrite=overwrite)
+        self.log(f"[+] t{g.font_group}${label}  hexmash={g.hexmash}  (stored={ok})")
         self._update_stats()
         self._refresh_region_markers()
 

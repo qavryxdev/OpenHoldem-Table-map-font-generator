@@ -197,8 +197,9 @@ def observe_region(frame_bgra: np.ndarray, region: tmmod.Region,
     return glyphs, images
 
 
-def add_glyph(table: tmmod.Tablemap, obs: GlyphObservation, char: str) -> bool:
-    if obs.hexmash in table.fonts[obs.font_group]:
+def add_glyph(table: tmmod.Tablemap, obs: GlyphObservation, char: str,
+              overwrite: bool = False) -> bool:
+    if obs.hexmash in table.fonts[obs.font_group] and not overwrite:
         return False
     table.fonts[obs.font_group][obs.hexmash] = tmmod.Font(ch=char, x=list(obs.xvals))
     return True
