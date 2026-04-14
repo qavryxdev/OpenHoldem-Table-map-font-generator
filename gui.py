@@ -158,32 +158,9 @@ class App(tk.Tk):
 
         self._build_ui()
         self._refresh_windows()
-        self._check_oversized_t_regions()
         self.after(100, self._pump_messages)
         self.bind_all("<Control-s>", lambda _e: self._save())
         self.protocol("WM_DELETE_WINDOW", self._on_close)
-
-    def _check_oversized_t_regions(self) -> None:
-        """Varuje na T regiony, ktere presahuji MAX_SINGLE_CHAR_HEIGHT/WIDTH
-        limity OpenScraperu/OpenHoldem CTransform — T-font matching takove
-        regiony nikdy nesestavi spravne, mely by byt I-transform."""
-        max_h = tx.MAX_SINGLE_CHAR_HEIGHT
-        max_w = tx.MAX_SINGLE_CHAR_WIDTH
-        bad: list[tuple[str, int, int, str]] = []
-        for name, r in self.table.regions.items():
-            if not (r.transform and r.transform[0] == "T"):
-                continue
-            h = r.bottom - r.top + 1
-            w = r.right - r.left + 1
-            # sirka muze obsahovat vic znaku -> nekontrolujem, ale vyska je per-char limit
-            if h > max_h:
-                bad.append((name, w, h, r.transform))
-        if not bad:
-            return
-        self.log(f"! {len(bad)} T regionu presahuje OH CTransform limit "
-                 f"(max height {max_h}px) — T-font scrape neuspecha, zmen na I:")
-        for name, w, h, tr in bad:
-            self.log(f"    {name:25} {w}x{h}  ({tr})")
 
     def _on_close(self):
         self.running = False
@@ -473,6 +450,9 @@ class App(tk.Tk):
         if is_t:
             d = dict(learn._last_debug)
             n_new = len(glyphs)
+            clipped = d.get("clipped", 0)
+            clip_tag = (f"  !!! USEKAVA {clipped} glyph(u) — region moc vysoky "
+                        f"pro OpenScrape, zmen na I-transform") if clipped else ""
             self.msg_q.put(("log",
                 f"  T {r.name:20} mask={d.get('mask_px',0):5d}px "
                 f"segs={d.get('n_segs',0):2d} "
@@ -480,7 +460,14 @@ class App(tk.Tk):
                 f"skip_exact={d.get('skipped_exact',0)} "
                 f"skip_fuzzy={d.get('skipped_fuzzy',0)} "
                 f"new={len(glyphs)} "
-                f"cube=0x{r.color:08x}/{r.radius}"))
+                f"cube=0x{r.color:08x}/{r.radius}"
+                f"{clip_tag}"))
+            if clipped and r.name not in getattr(self, "_clip_warned", set()):
+                self._clip_warned = getattr(self, "_clip_warned", set()) | {r.name}
+                self.msg_q.put(("log",
+                    f"! VAROVANI: region {r.name} by se musel usekavat "
+                    f"(glyph vyssi nez {tx.MAX_SINGLE_CHAR_HEIGHT}px) — "
+                    f"T-font matching neni spolehlivy, preved na I-transform"))
         for g in glyphs:
             key = (g.font_group, g.hexmash)
             if key in self.discarded_glyphs or key in self.pending_glyphs:

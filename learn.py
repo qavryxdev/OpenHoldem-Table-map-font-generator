@@ -149,6 +149,7 @@ def observe_region(frame_bgra: np.ndarray, region: tmmod.Region,
         H_region = crop.shape[0]
         region_area = W_region * H_region
         mask_density = (mask.sum() / region_area) if region_area else 0.0
+        _last_debug["clipped"] = sum(1 for s in segs if s.height_clipped)
         for s in segs:
             seg_w = s.x_end - s.x_begin + 1
             # reject "whole-region blob" — zly cube matchnul pozadi
