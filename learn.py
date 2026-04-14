@@ -159,15 +159,14 @@ def observe_region(frame_bgra: np.ndarray, region: tmmod.Region,
             if fuzzy_tol > 0 and _fuzzy_font_match(s.xvals, existing, fuzzy_tol):
                 _last_debug["skipped_fuzzy"] += 1
                 continue
-            H = crop.shape[0]
-            y0, y1 = max(0, s.y_begin), min(H, s.y_end + 1)
-            x0, x1 = s.x_begin, s.x_end + 1
-            glyph_rgba = tx.region_to_rgba_array(crop[y0:y1, x0:x1])
-            sub_mask = mask[x0:x1, y0:y1].T
+            # preview = cely region z TM (neorezavat na segment),
+            # aby user videl kontext celeho card regionu
+            full_rgba = tx.region_to_rgba_array(crop)
+            full_mask = mask.T  # [H, W]
             glyphs.append(GlyphObservation(
                 region=region.name, font_group=group,
                 hexmash=s.hexmash, xvals=s.xvals,
-                pixels=glyph_rgba, mask_preview=sub_mask,
+                pixels=full_rgba, mask_preview=full_mask,
             ))
 
     elif kind == "I":
