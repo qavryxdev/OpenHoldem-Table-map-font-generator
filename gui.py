@@ -501,8 +501,20 @@ class App(tk.Tk):
         label = dlg.result[0]  # OH fonts store a single char
         overwrite = (is_suit and label in ("h", "d", "c", "s")) or \
                     (is_rank and label in ("2","3","4","5","6","7","8","9","T","J","Q","K","A"))
-        ok = learn.add_glyph(self.table, g, label, overwrite=overwrite)
-        self.log(f"[+] t{g.font_group}${label}  hexmash={g.hexmash}  (stored={ok})")
+        # pro card regiony (cardface + suit/rank) uloz bitmapu CELEHO regionu
+        # jako image — ne orezany font-segment, protoze user vidi v nahledu
+        # cely region a ocekava stejnou bitmapu v TM
+        if (is_suit or is_rank) and "cardface" in rlow:
+            h_px, w_px = g.pixels.shape[:2]
+            im_obs = learn.ImageObservation(
+                region=g.region, width=w_px, height=h_px,
+                pixels=g.pixels, exact_name=None, near_matches=[],
+            )
+            saved = learn.add_image(self.table, im_obs, label, overwrite=overwrite)
+            self.log(f"[+] i${saved or label}  {w_px}x{h_px}  (from cardface region)")
+        else:
+            ok = learn.add_glyph(self.table, g, label, overwrite=overwrite)
+            self.log(f"[+] t{g.font_group}${label}  hexmash={g.hexmash}  (stored={ok})")
         self._update_stats()
         self._refresh_region_markers()
 
