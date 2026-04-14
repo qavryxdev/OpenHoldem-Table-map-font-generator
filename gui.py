@@ -35,11 +35,13 @@ class LabelDialog(tk.Toplevel):
     """Modal dialog showing a glyph/image preview and asking for a label."""
 
     def __init__(self, parent: tk.Misc, title: str, preview_rgba: np.ndarray,
-                 context_text: str, default: str = "", scale: int = SCALE):
+                 context_text: str, default: str = "", scale: int = SCALE,
+                 save_tm_cb=None):
         super().__init__(parent)
         self.title(title)
         self.resizable(False, False)
         self.result: str | None = None
+        self._save_tm_cb = save_tm_cb
         self._photo = _pil_from_rgba(preview_rgba, scale)
         tk.Label(self, image=self._photo, borderwidth=2, relief="groove").pack(padx=8, pady=8)
         tk.Label(self, text=context_text, justify="left",
@@ -60,9 +62,19 @@ class LabelDialog(tk.Toplevel):
         tk.Button(btns, text="Save (Enter)", command=self._ok).pack(side="left", padx=4)
         tk.Button(btns, text="Skip (Esc)", command=self._skip).pack(side="left", padx=4)
         tk.Button(btns, text="Discard (forever)", command=self._discard).pack(side="left", padx=4)
+        if save_tm_cb is not None:
+            tk.Button(btns, text="💾 Save TM (Ctrl+S)",
+                      command=self._save_tm).pack(side="left", padx=12)
+        self.bind("<Control-s>", lambda _e: self._save_tm())
 
         self.transient(parent)
-        self.grab_set()
+        # zamerne bez grab_set — umozni zavrit hlavni okno i pri aktivnim popupu
+        # dostan okno do popredi a fokus na entry, at user muze rovnou psat
+        self.attributes("-topmost", True)
+        self.lift()
+        self.after(10, lambda: (self.focus_force(), self.ent.focus_set()))
+        # kdyz user zavre X, chovej se jako Skip a nech parent zavrit
+        self.protocol("WM_DELETE_WINDOW", self._skip)
         self.wait_window(self)
 
     def _ok(self):
@@ -80,6 +92,10 @@ class LabelDialog(tk.Toplevel):
         self.result = "__DISCARD__"
         self.destroy()
 
+    def _save_tm(self):
+        if self._save_tm_cb is not None:
+            self._save_tm_cb()
+
 
 class App(tk.Tk):
     def __init__(self, table: tmmod.Tablemap):
@@ -93,11 +109,26 @@ class App(tk.Tk):
         self.msg_q: queue.Queue = queue.Queue()
         self.discarded_glyphs: set[tuple[int, str]] = set()   # (group, hexmash)
         self.discarded_images: set[tuple[int, int, bytes]] = set()  # (w,h,bytes)
+        self.pending_glyphs: set[tuple[int, str]] = set()    # already in msg_q
+        self.pending_images: set[tuple[int, int, bytes]] = set()
         self.image_name_counter = 0
 
         self._build_ui()
         self._refresh_windows()
         self.after(100, self._pump_messages)
+        self.bind_all("<Control-s>", lambda _e: self._save())
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _on_close(self):
+        self.running = False
+        # zavri pripadny otevreny dialog
+        for w in self.winfo_children():
+            if isinstance(w, tk.Toplevel):
+                try:
+                    w.destroy()
+                except Exception:
+                    pass
+        self.destroy()
 
     def _build_ui(self):
         top = tk.Frame(self)
@@ -122,16 +153,117 @@ class App(tk.Tk):
         self.stats_lbl.pack(anchor="w")
         self._update_stats()
 
-        log = tk.LabelFrame(self, text="Log")
-        log.pack(fill="both", expand=True, padx=6, pady=6)
+        # --- region selection + log side-by-side ---
+        middle = tk.Frame(self)
+        middle.pack(fill="both", expand=True, padx=6, pady=6)
+
+        regfrm = tk.LabelFrame(middle, text="Regions (✓ = zaškrtnuto = učit)")
+        regfrm.pack(side="left", fill="y")
+        btnbar = tk.Frame(regfrm)
+        btnbar.pack(fill="x")
+        tk.Button(btnbar, text="vše", width=5,
+                  command=lambda: self._set_all_regions(True)).pack(side="left")
+        tk.Button(btnbar, text="nic", width=5,
+                  command=lambda: self._set_all_regions(False)).pack(side="left")
+        tk.Button(btnbar, text="jen neuč.", width=9,
+                  command=self._select_untrained).pack(side="left")
+        # dynamicke tlacitka per transform (T0..Tx, I)
+        typebar = tk.Frame(regfrm)
+        typebar.pack(fill="x")
+        tk.Label(typebar, text="jen typ:").pack(side="left")
+        used = sorted({r.transform for r in self.table.regions.values()
+                       if r.transform and r.transform[0] in ("T", "I")})
+        for tr in used:
+            tk.Button(typebar, text=tr, width=4,
+                      command=lambda t=tr: self._select_by_transform(t)
+                      ).pack(side="left", padx=1)
+        self.region_lb = tk.Listbox(regfrm, selectmode="multiple",
+                                     width=36, height=20, font=("Consolas", 9),
+                                     activestyle="none", exportselection=False)
+        self.region_lb.pack(fill="y", expand=True)
+        self._populate_regions()
+
+        log = tk.LabelFrame(middle, text="Log")
+        log.pack(side="left", fill="both", expand=True, padx=(6, 0))
         self.log_txt = tk.Text(log, height=20, font=("Consolas", 9))
         self.log_txt.pack(fill="both", expand=True)
+
+    # ---------- region list ----------
+
+    def _region_status(self, r: tmmod.Region) -> tuple[str, bool]:
+        """Return (marker, is_trained). Marker shown in listbox."""
+        t = r.transform or ""
+        kind = t[0] if t else "?"
+        trained = False
+        if kind == "T":
+            grp = int(t[1]) if len(t) > 1 and t[1].isdigit() else 0
+            if 0 <= grp < tmmod.N_FONT_GROUPS and len(self.table.fonts[grp]) > 0:
+                trained = True
+        elif kind == "I":
+            # any image region in TM implies at least one picture was saved
+            trained = len(self.table.images) > 0
+        else:
+            # non-learnable — mark as "n/a"
+            return ("·", True)
+        return ("●" if trained else "○", trained)
+
+    def _populate_regions(self):
+        self.region_lb.delete(0, "end")
+        self._region_names: list[str] = []
+        for name in sorted(self.table.regions):
+            r = self.table.regions[name]
+            marker, _ = self._region_status(r)
+            self.region_lb.insert("end", f"{marker} {r.transform:<3} {name}")
+            self._region_names.append(name)
+            self.region_lb.selection_set("end")  # default all selected
+
+    def _refresh_region_markers(self):
+        """Update ●/○ without losing selection."""
+        sel = set(self.region_lb.curselection())
+        self.region_lb.delete(0, "end")
+        for i, name in enumerate(self._region_names):
+            r = self.table.regions[name]
+            marker, _ = self._region_status(r)
+            self.region_lb.insert("end", f"{marker} {r.transform:<3} {name}")
+            if i in sel:
+                self.region_lb.selection_set(i)
+
+    def _set_all_regions(self, on: bool):
+        if on:
+            self.region_lb.select_set(0, "end")
+        else:
+            self.region_lb.select_clear(0, "end")
+
+    def _select_untrained(self):
+        self.region_lb.select_clear(0, "end")
+        for i, name in enumerate(self._region_names):
+            r = self.table.regions[name]
+            kind = (r.transform or "")[:1]
+            if kind not in ("T", "I"):
+                continue
+            _, trained = self._region_status(r)
+            if not trained:
+                self.region_lb.select_set(i)
+
+    def _select_by_transform(self, transform: str):
+        self.region_lb.select_clear(0, "end")
+        for i, name in enumerate(self._region_names):
+            if self.table.regions[name].transform == transform:
+                self.region_lb.select_set(i)
+
+    def _selected_region_names(self) -> set[str]:
+        return {self._region_names[i] for i in self.region_lb.curselection()}
 
     # ---------- bookkeeping ----------
 
     def log(self, s: str) -> None:
         self.log_txt.insert("end", s + "\n")
         self.log_txt.see("end")
+        try:
+            with open("ohlearn.log", "a", encoding="utf-8") as f:
+                f.write(s + "\n")
+        except OSError:
+            pass
 
     def _update_stats(self):
         t = self.table
@@ -180,6 +312,10 @@ class App(tk.Tk):
     def _worker_loop(self):
         interval = 1.0
         while self.running:
+            # pausni sbirani kdyz uz je ve fronte hodne cekajicich dialogu
+            if self.msg_q.qsize() > 20:
+                time.sleep(0.5)
+                continue
             try:
                 frame = capture.capture_client(self.hwnd)
             except Exception as e:
@@ -210,25 +346,70 @@ class App(tk.Tk):
                         time.sleep(interval)
                         continue
 
-            # iterate regions
+            # iterate regions (filtered by selection)
+            active = self._selected_region_names()
+            n_t = 0
+            n_t_dialogs = 0
             for r in list(self.table.regions.values()):
                 if not self.running:
                     break
-                glyphs, images = learn.observe_region(frame, r, self.table)
-                for g in glyphs:
-                    key = (g.font_group, g.hexmash)
-                    if key in self.discarded_glyphs:
-                        continue
-                    self.msg_q.put(("glyph", g))
-                for im in images:
-                    if im.exact_name is not None:
-                        continue
-                    key = (im.width, im.height, im.pixels.tobytes())
-                    if key in self.discarded_images:
-                        continue
-                    self.msg_q.put(("image", im))
+                if r.name not in active:
+                    continue
+                try:
+                    nt, nd = self._process_region(frame, r)
+                    n_t += nt
+                    n_t_dialogs += nd
+                except Exception as e:
+                    import traceback
+                    self.msg_q.put(("log",
+                        f"ERROR in region {r.name}: {e}\n{traceback.format_exc()}"))
+                    continue
+            self.msg_q.put(("log",
+                f"cycle: {n_t} T regionu, {n_t_dialogs} new glyphs to label"))
 
             time.sleep(interval)
+
+    def _process_region(self, frame, r) -> tuple[int, int]:
+        is_t = bool(r.transform and r.transform[0] == "T")
+        n_t = 1 if is_t else 0
+        n_new = 0
+        if is_t:
+            crop = frame[r.top:r.bottom + 1, r.left:r.right + 1]
+            if crop.size > 0:
+                old_c, old_r = r.color, r.radius
+                if learn.autotune_region_inplace(r, crop):
+                    self.msg_q.put(("log",
+                        f"autotune {r.name}: 0x{old_c:08x}/{old_r} -> "
+                        f"0x{r.color:08x}/{r.radius}"))
+        glyphs, images = learn.observe_region(frame, r, self.table)
+        if is_t:
+            d = dict(learn._last_debug)
+            n_new = len(glyphs)
+            self.msg_q.put(("log",
+                f"  T {r.name:20} mask={d.get('mask_px',0):5d}px "
+                f"segs={d.get('n_segs',0):2d} "
+                f"existing={d.get('n_existing',0):3d} "
+                f"skip_exact={d.get('skipped_exact',0)} "
+                f"skip_fuzzy={d.get('skipped_fuzzy',0)} "
+                f"new={len(glyphs)} "
+                f"cube=0x{r.color:08x}/{r.radius}"))
+        for g in glyphs:
+            key = (g.font_group, g.hexmash)
+            if key in self.discarded_glyphs or key in self.pending_glyphs:
+                continue
+            if g.hexmash in self.table.fonts[g.font_group]:
+                continue
+            self.pending_glyphs.add(key)
+            self.msg_q.put(("glyph", g))
+        for im in images:
+            if im.exact_name is not None:
+                continue
+            key = (im.width, im.height, im.pixels.tobytes())
+            if key in self.discarded_images or key in self.pending_images:
+                continue
+            self.pending_images.add(key)
+            self.msg_q.put(("image", im))
+        return n_t, n_new
 
     # ---------- message pump (main thread) ----------
 
@@ -247,41 +428,55 @@ class App(tk.Tk):
         self.after(100, self._pump_messages)
 
     def _handle_glyph(self, g: learn.GlyphObservation):
-        # re-check (may have been added while queued)
+        key = (g.font_group, g.hexmash)
+        self.pending_glyphs.discard(key)
+        # re-check (may have been added/discarded while queued)
         if g.hexmash in self.table.fonts[g.font_group]:
+            return
+        if key in self.discarded_glyphs:
             return
         ctx = (f"region: {g.region}    font group: t{g.font_group}\n"
                f"hexmash: {g.hexmash}\n"
                f"width  : {len(g.xvals)} cols")
-        dlg = LabelDialog(self, "New glyph", g.pixels, ctx)
+        dlg = LabelDialog(self, "New glyph", g.pixels, ctx, save_tm_cb=self._save)
         if dlg.result == "__DISCARD__":
             self.discarded_glyphs.add((g.font_group, g.hexmash))
             self.log(f"[-] discarded glyph t{g.font_group}$ hexmash={g.hexmash}")
             return
         if dlg.result is None:
+            # Skip — don't ask about this glyph again in this session
+            self.discarded_glyphs.add((g.font_group, g.hexmash))
             return
         label = dlg.result[0]  # OH fonts store a single char
         learn.add_glyph(self.table, g, label)
         self.log(f"[+] t{g.font_group}${label}  hexmash={g.hexmash}")
         self._update_stats()
+        self._refresh_region_markers()
 
     def _handle_image(self, im: learn.ImageObservation):
+        key = (im.width, im.height, im.pixels.tobytes())
+        self.pending_images.discard(key)
+        if key in self.discarded_images:
+            return
         # propose name from region (e.g. "p0cardback" → similar)
         near_str = ", ".join(f"{n} (diff={d})" for n, d in im.near_matches) or "(none)"
         self.image_name_counter += 1
         proposed = f"{im.region}_{self.image_name_counter:03d}"
         ctx = (f"region: {im.region}    size: {im.width}x{im.height}\n"
                f"nearest existing: {near_str}")
-        dlg = LabelDialog(self, "New image", im.pixels, ctx, default=proposed, scale=2)
+        dlg = LabelDialog(self, "New image", im.pixels, ctx, default=proposed, scale=2,
+                          save_tm_cb=self._save)
         if dlg.result == "__DISCARD__":
             self.discarded_images.add((im.width, im.height, im.pixels.tobytes()))
             self.log(f"[-] discarded image for {im.region}")
             return
         if dlg.result is None:
+            self.discarded_images.add((im.width, im.height, im.pixels.tobytes()))
             return
         learn.add_image(self.table, im, dlg.result)
         self.log(f"[+] i${dlg.result}  {im.width}x{im.height}")
         self._update_stats()
+        self._refresh_region_markers()
 
     # ---------- save / prune ----------
 

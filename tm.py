@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 VERSION_HEADER = ".osdb2"
-N_FONT_GROUPS = 6
+N_FONT_GROUPS = 10
 N_HASH_GROUPS = 4
 
 

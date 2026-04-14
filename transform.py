@@ -158,6 +158,8 @@ def segment_chars(character: np.ndarray) -> list[CharSegment]:
     DoPlainFontScan. This yields the raw glyphs observed — caller decides
     whether they're new."""
     W, H = character.shape
+    if W < 2 or H < 2:
+        return []
     background = ~character.any(axis=1)  # bool[W]
 
     segments: list[CharSegment] = []
@@ -168,8 +170,9 @@ def segment_chars(character: np.ndarray) -> list[CharSegment]:
     # walk right, take greedy MAX_SINGLE_CHAR_WIDTH window and shrink until we
     # land on something OR give up.
     while vert_band_left < W:
+        win_w = min(MAX_SINGLE_CHAR_WIDTH, W - vert_band_left)
         x_begin, x_end, y_begin, y_end = shift_left_down_indexes(
-            vert_band_left, MAX_SINGLE_CHAR_WIDTH, H, background, character
+            vert_band_left, win_w, H, background, character
         )
         if y_end - y_begin > MAX_SINGLE_CHAR_HEIGHT:
             y_begin = y_end - MAX_SINGLE_CHAR_HEIGHT
@@ -180,7 +183,7 @@ def segment_chars(character: np.ndarray) -> list[CharSegment]:
 
         # find minimum-width char bbox: shrink right edge until we still have
         # at least one foreground column
-        right_edge = min(vert_band_left + MAX_SINGLE_CHAR_WIDTH, W) - 1
+        right_edge = min(vert_band_left + win_w, W) - 1
         # default: produce one segment from the current blob
         # Strategy: take the contiguous-foreground run starting at vert_band_left
         # (OH uses font lookup to decide where to cut — we don't have labels yet)
@@ -191,6 +194,16 @@ def segment_chars(character: np.ndarray) -> list[CharSegment]:
         if seg_right < vert_band_left:
             vert_band_left += 1
             continue
+        # If the run is wider than MAX_SINGLE_CHAR_WIDTH, digits are touching.
+        # Split at the column with MINIMUM foreground pixels (valley) inside
+        # the window — usually between two characters.
+        if seg_right - vert_band_left + 1 > MAX_SINGLE_CHAR_WIDTH:
+            hi = vert_band_left + MAX_SINGLE_CHAR_WIDTH
+            lo = vert_band_left + max(4, MAX_SINGLE_CHAR_WIDTH // 3)
+            hi = min(hi, seg_right)
+            col_counts = character[lo:hi + 1, :].sum(axis=1)
+            valley = int(col_counts.argmin()) + lo
+            seg_right = valley - 1 if valley > vert_band_left else valley
         # recompute shift-down over the actual char cols
         x_begin, x_end, y_begin, y_end = shift_left_down_indexes(
             vert_band_left, seg_right - vert_band_left + 1, H, background, character

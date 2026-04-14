@@ -3,3 +3,4 @@ __pycache__/
 .deps_ok
 *.bak
 *.tmp
+ohlearn.log

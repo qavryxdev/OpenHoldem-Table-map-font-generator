@@ -37,6 +37,8 @@ class ImageObservation:
 DEFAULT_FUZZY_TOLERANCE = 0.05      # OH default
 IMAGE_MATCH_FRACTION = 0.65         # OH ITypeTransform: 65% pixel threshold
 
+_last_debug: dict = {}
+
 
 def _font_tolerance(table: tmmod.Tablemap, group: int) -> float:
     """Read s$tNtype to decide if fuzzy matching is on for this font group.
@@ -55,16 +57,19 @@ def _font_tolerance(table: tmmod.Tablemap, group: int) -> float:
 
 
 def _fuzzy_font_match(seg_xs: list[int], fonts: dict[str, tmmod.Font],
-                      tolerance: float) -> str | None:
+                      tolerance: float, width_slack: int = 1) -> str | None:
     """Reproduces GetBestHammingDistance: weighted_hd = sum(hamming) / sum(lit_pixels).
-    Returns matched char if best_weighted_hd < tolerance, else None."""
+    Returns matched char if best_weighted_hd < tolerance, else None.
+
+    Allow segment to be up to +width_slack cols wider than font (font = prefix).
+    """
     if tolerance <= 0 or not seg_xs:
         return None
     best_hd = 999999.0
     best_ch: str | None = None
     seg_len = len(seg_xs)
     for f in fonts.values():
-        if f.x_count > seg_len:
+        if f.x_count > seg_len or seg_len - f.x_count > width_slack:
             continue
         tot = 0.000001
         lit = 0.000001
@@ -113,17 +118,47 @@ def observe_region(frame_bgra: np.ndarray, region: tmmod.Region,
     if kind == "T":
         group = int(t[1]) if len(t) > 1 and t[1].isdigit() else 0
         mask = tx.build_char_mask(crop, region.color, region.radius)  # [W, H]
+        region_area = max(1, crop.shape[0] * crop.shape[1])
+        if mask.sum() / region_area > 0.9:
+            # cube matchne skoro vse → rozbity, neucit nic z nej
+            _last_debug["region"] = region.name
+            _last_debug["mask_px"] = int(mask.sum())
+            _last_debug["n_segs"] = 0
+            _last_debug["n_existing"] = len(table.fonts[group])
+            _last_debug["fuzzy_tol"] = _font_tolerance(table, group)
+            _last_debug["skipped_exact"] = 0
+            _last_debug["skipped_fuzzy"] = 0
+            _last_debug["skipped_blob"] = 1
+            return [], []
         segs = tx.segment_chars(mask)
         existing = table.fonts[group]
         fuzzy_tol = _font_tolerance(table, group)
+        _last_debug["region"] = region.name
+        _last_debug["mask_px"] = int(mask.sum())
+        _last_debug["n_segs"] = len(segs)
+        _last_debug["n_existing"] = len(existing)
+        _last_debug["fuzzy_tol"] = fuzzy_tol
+        _last_debug["skipped_exact"] = 0
+        _last_debug["skipped_fuzzy"] = 0
+        W_region = crop.shape[1]
+        H_region = crop.shape[0]
+        region_area = W_region * H_region
+        mask_density = (mask.sum() / region_area) if region_area else 0.0
         for s in segs:
+            seg_w = s.x_end - s.x_begin + 1
+            # reject "whole-region blob" — zly cube matchnul pozadi
+            if seg_w > 0.85 * W_region and mask_density > 0.5:
+                _last_debug["skipped_blob"] = _last_debug.get("skipped_blob", 0) + 1
+                continue
             # exact hexmash match — already known
             if s.hexmash in existing:
+                _last_debug["skipped_exact"] += 1
                 continue
             # fuzzy match: if the TM is configured for fuzzy/numeric tolerance
             # and any existing glyph is within weighted-HD tolerance, treat as
             # already covered (don't propose).
             if fuzzy_tol > 0 and _fuzzy_font_match(s.xvals, existing, fuzzy_tol):
+                _last_debug["skipped_fuzzy"] += 1
                 continue
             H = crop.shape[0]
             y0, y1 = max(0, s.y_begin), min(H, s.y_end + 1)
@@ -224,3 +259,133 @@ def remove_font(table: tmmod.Tablemap, group: int, hexmash: str) -> bool:
     if 0 <= group < tmmod.N_FONT_GROUPS:
         return table.fonts[group].pop(hexmash, None) is not None
     return False
+
+
+# ---------------- auto color/radius tuning ----------------
+
+def autotune_region_color(crop_bgra: np.ndarray) -> tuple[int, int] | None:
+    """Bimodal Otsu split on luminance: minority cluster = text foreground.
+    Returns (color 0xAARRGGBB, radius) suitable for TM, or None if region is
+    monochrome (no text detectable).
+    """
+    H, W = crop_bgra.shape[:2]
+    if H * W < 4:
+        return None
+    px = crop_bgra.reshape(-1, 4).astype(int)  # B G R A
+    lum = (px[:, 2] * 299 + px[:, 1] * 587 + px[:, 0] * 114) // 1000
+    lo, hi = int(lum.min()), int(lum.max())
+    if hi - lo < 20:
+        return None  # monochrome — no text contrast
+
+    # Otsu
+    hist, _ = np.histogram(lum, bins=256, range=(0, 256))
+    total = lum.size
+    sum_all = float((np.arange(256) * hist).sum())
+    best_t, best_var = 0, -1.0
+    w_b = 0
+    sum_b = 0.0
+    for t in range(256):
+        w_b += int(hist[t])
+        if w_b == 0:
+            continue
+        w_f = total - w_b
+        if w_f == 0:
+            break
+        sum_b += t * int(hist[t])
+        mean_b = sum_b / w_b
+        mean_f = (sum_all - sum_b) / w_f
+        var = w_b * w_f * (mean_b - mean_f) ** 2
+        if var > best_var:
+            best_var = var
+            best_t = t
+
+    below = lum <= best_t
+    above = ~below
+    n_below = int(below.sum())
+    n_above = int(above.sum())
+    if n_below == 0 or n_above == 0:
+        return None
+    text_mask = below if n_below <= n_above else above
+    text_px = px[text_mask]
+    mean = text_px.mean(axis=0)  # B G R A
+    b, g, r, a = (int(round(v)) for v in mean)
+
+    # radius: max RGBA-cube distance from mean within the text cluster, +5 buffer
+    diff = text_px - mean
+    dist = np.sqrt((diff ** 2).sum(axis=1))
+    radius = int(round(dist.max())) + 5
+
+    color = (a << 24) | (r << 16) | (g << 8) | b
+    return color, radius
+
+
+def _unpack(color: int) -> tuple[int, int, int, int]:
+    a = (color >> 24) & 0xff
+    r = (color >> 16) & 0xff
+    g = (color >> 8) & 0xff
+    b = color & 0xff
+    return a, r, g, b
+
+
+def _pack(a: int, r: int, g: int, b: int) -> int:
+    a = max(0, min(255, int(round(a))))
+    r = max(0, min(255, int(round(r))))
+    g = max(0, min(255, int(round(g))))
+    b = max(0, min(255, int(round(b))))
+    return (a << 24) | (r << 16) | (g << 8) | b
+
+
+MAX_CUBE_RADIUS = 150
+
+
+def _expand_cube(c1: int, r1: int, c2: int, r2: int) -> tuple[int, int]:
+    """Vrati nejmensi 4D ARGB cube ktery pokryva oba puvodni cuby."""
+    a1, r1c, g1, b1 = _unpack(c1)
+    a2, r2c, g2, b2 = _unpack(c2)
+    new_c = _pack((a1 + a2) / 2, (r1c + r2c) / 2, (g1 + g2) / 2, (b1 + b2) / 2)
+    da = a1 - a2; dr = r1c - r2c; dg = g1 - g2; db = b1 - b2
+    dist = (da * da + dr * dr + dg * dg + db * db) ** 0.5
+    new_r = int(round(max(r1, r2) + dist / 2)) + 2
+    new_r = min(new_r, MAX_CUBE_RADIUS)
+    return new_c, new_r
+
+
+def autotune_region_inplace(region: tmmod.Region, crop_bgra: np.ndarray) -> bool:
+    """Pokud region.color/radius nezasahuje zadny pixel, najdi novou barvu textu.
+    Pokud uz region nejakou barvu zachycuje, NEPRENASTAVUJ. Vraci True kdyz
+    doslo ke zmene.
+
+    Pro pripady kdy se text meni (aktivni/neaktivni hrac), volej tuto funkci
+    opakovane — pokazde kdyz aktualni cube nezachyti nic, expandne se aby
+    zahrnoval i novou variantu.
+    """
+    H, W = crop_bgra.shape[:2]
+    area = max(1, H * W)
+    if region.radius != 0:
+        mask = tx.build_char_mask(crop_bgra, region.color, region.radius)
+        density = mask.sum() / area
+        # rozbity cube (matchne skoro cely region) — resetuj a udelej cerstvy
+        if density > 0.9:
+            region.color = 0
+            region.radius = 0
+        else:
+            if mask.any() and len(tx.segment_chars(mask)) > 0:
+                return False
+            if abs(region.radius) >= 200:
+                return False
+    tuned = autotune_region_color(crop_bgra)
+    if tuned is None:
+        return False
+    new_color, new_radius = tuned
+    new_mask = tx.build_char_mask(crop_bgra, new_color, new_radius)
+    if not new_mask.any() or len(tx.segment_chars(new_mask)) == 0:
+        return False
+    if region.color == 0 and region.radius == 0:
+        region.color = new_color
+        region.radius = new_radius
+    else:
+        # expanduj puvodni cube aby pokryl i novou barvu
+        region.color, region.radius = _expand_cube(
+            region.color, region.radius, new_color, new_radius
+        )
+    return True
