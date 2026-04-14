@@ -204,15 +204,22 @@ def add_glyph(table: tmmod.Tablemap, obs: GlyphObservation, char: str) -> bool:
     return True
 
 
-def add_image(table: tmmod.Tablemap, obs: ImageObservation, name: str) -> bool:
-    if name in table.images:
-        return False
+def add_image(table: tmmod.Tablemap, obs: ImageObservation, name: str) -> str:
+    """Add image under `name`; auto-suffix _2/_3/... on collision.
+    Returns the actual name stored (empty string only if name is empty)."""
+    if not name:
+        return ""
+    final = name
+    n = 2
+    while final in table.images:
+        final = f"{name}_{n}"
+        n += 1
     pixels = [tuple(px) for px in obs.pixels.reshape(-1, 4).tolist()]
     pixels = [(int(r), int(g), int(b), int(a)) for r, g, b, a in pixels]
-    table.images[name] = tmmod.Image(
-        name=name, width=obs.width, height=obs.height, pixels=pixels,
+    table.images[final] = tmmod.Image(
+        name=final, width=obs.width, height=obs.height, pixels=pixels,
     )
-    return True
+    return final
 
 
 # ---------------- pruning ----------------

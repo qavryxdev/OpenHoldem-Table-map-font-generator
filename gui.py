@@ -36,7 +36,8 @@ class LabelDialog(tk.Toplevel):
 
     def __init__(self, parent: tk.Misc, title: str, preview_rgba: np.ndarray,
                  context_text: str, default: str = "", scale: int = SCALE,
-                 save_tm_cb=None):
+                 save_tm_cb=None, suit_picker: bool = False,
+                 rank_picker: bool = False):
         super().__init__(parent)
         self.title(title)
         self.resizable(False, False)
@@ -56,6 +57,39 @@ class LabelDialog(tk.Toplevel):
         self.ent.focus_set()
         self.ent.bind("<Return>", lambda _e: self._ok())
         self.ent.bind("<Escape>", lambda _e: self._skip())
+
+        if suit_picker:
+            suitfrm = tk.Frame(self)
+            suitfrm.pack(padx=8, pady=4)
+            tk.Label(suitfrm, text="Suit:",
+                     font=("Segoe UI", 10, "bold")).pack(side="left", padx=4)
+            for ch, label, fg in (
+                ("h", "♥ Hearts (h)", "#c0282a"),
+                ("d", "♦ Diamonds (d)", "#c0282a"),
+                ("c", "♣ Clubs (c)", "#111"),
+                ("s", "♠ Spades (s)", "#111"),
+            ):
+                tk.Button(suitfrm, text=label, fg=fg, width=13,
+                          command=lambda c=ch: self._pick_suit(c)
+                          ).pack(side="left", padx=2)
+            # klavesove zkratky h/d/c/s
+            for ch in "hdcs":
+                self.bind(f"<Key-{ch}>", lambda _e, c=ch: self._pick_suit(c))
+
+        if rank_picker:
+            rankfrm = tk.Frame(self)
+            rankfrm.pack(padx=8, pady=4)
+            tk.Label(rankfrm, text="Rank:",
+                     font=("Segoe UI", 10, "bold")).pack(side="left", padx=4)
+            for ch in ("2", "3", "4", "5", "6", "7", "8", "9",
+                       "T", "J", "Q", "K", "A"):
+                tk.Button(rankfrm, text=ch, width=3,
+                          font=("Segoe UI", 10, "bold"),
+                          command=lambda c=ch: self._pick_rank(c)
+                          ).pack(side="left", padx=1)
+            for ch in "23456789tjqkaTJQKA":
+                self.bind(f"<Key-{ch}>",
+                          lambda _e, c=ch.upper(): self._pick_rank(c))
 
         btns = tk.Frame(self)
         btns.pack(padx=8, pady=8)
@@ -95,6 +129,14 @@ class LabelDialog(tk.Toplevel):
     def _save_tm(self):
         if self._save_tm_cb is not None:
             self._save_tm_cb()
+
+    def _pick_suit(self, ch: str):
+        self.result = ch
+        self.destroy()
+
+    def _pick_rank(self, ch: str):
+        self.result = ch
+        self.destroy()
 
 
 class App(tk.Tk):
@@ -441,7 +483,11 @@ class App(tk.Tk):
         ctx = (f"region: {g.region}    font group: t{g.font_group}\n"
                f"hexmash: {g.hexmash}\n"
                f"width  : {len(g.xvals)} cols")
-        dlg = LabelDialog(self, "New glyph", g.pixels, ctx, save_tm_cb=self._save)
+        rlow = g.region.lower()
+        dlg = LabelDialog(self, "New glyph", g.pixels, ctx,
+                          save_tm_cb=self._save,
+                          suit_picker="suit" in rlow,
+                          rank_picker="rank" in rlow)
         if dlg.result == "__DISCARD__":
             self.discarded_glyphs.add((g.font_group, g.hexmash))
             self.log(f"[-] discarded glyph t{g.font_group}$ hexmash={g.hexmash}")
@@ -467,8 +513,11 @@ class App(tk.Tk):
         proposed = f"{im.region}_{self.image_name_counter:03d}"
         ctx = (f"region: {im.region}    size: {im.width}x{im.height}\n"
                f"nearest existing: {near_str}")
-        dlg = LabelDialog(self, "New image", im.pixels, ctx, default=proposed, scale=2,
-                          save_tm_cb=self._save)
+        rlow = im.region.lower()
+        dlg = LabelDialog(self, "New image", im.pixels, ctx, default="", scale=2,
+                          save_tm_cb=self._save,
+                          suit_picker="suit" in rlow,
+                          rank_picker="rank" in rlow)
         if dlg.result == "__DISCARD__":
             self.discarded_images.add((im.width, im.height, im.pixels.tobytes()))
             self.log(f"[-] discarded image for {im.region}")
@@ -476,8 +525,8 @@ class App(tk.Tk):
         if dlg.result is None:
             self.discarded_images.add((im.width, im.height, im.pixels.tobytes()))
             return
-        learn.add_image(self.table, im, dlg.result)
-        self.log(f"[+] i${dlg.result}  {im.width}x{im.height}")
+        saved = learn.add_image(self.table, im, dlg.result)
+        self.log(f"[+] i${saved or dlg.result}  {im.width}x{im.height}")
         self._update_stats()
         self._refresh_region_markers()
 
