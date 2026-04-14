@@ -193,15 +193,15 @@ def observe_region(frame_bgra: np.ndarray, region: tmmod.Region,
         obs_flat = rgba
         match: str | None = None
         near: list[tuple[str, int]] = []
-        for name, img in table.images.items():
+        for img in table.images:
             if img.width != w or img.height != h:
                 continue
             existing_arr = np.array(img.pixels, dtype=np.uint8).reshape((h, w, 4))
             if _image_matches(obs_flat, existing_arr, region.radius):
-                match = name
+                match = img.name
                 break
             diff = tx.image_diff_count(obs_flat, existing_arr, image_tolerance_px)
-            near.append((name, diff))
+            near.append((img.name, diff))
         near.sort(key=lambda x: x[1])
         images.append(ImageObservation(
             region=region.name, width=w, height=h, pixels=rgba,
@@ -221,21 +221,24 @@ def add_glyph(table: tmmod.Tablemap, obs: GlyphObservation, char: str,
 
 def add_image(table: tmmod.Tablemap, obs: ImageObservation, name: str,
               overwrite: bool = False) -> str:
-    """Add image under `name`. If overwrite=False, auto-suffix _2/_3/... on
-    collision; if True, replace existing entry. Returns the name stored."""
+    """Add image under `name`. OpenScrape allows multiple i$ entries sharing
+    the same name — when overwrite=True, just append (duplicates ok). When
+    overwrite=False, auto-suffix _2/_3/... to keep names unique. Returns the
+    name stored."""
     if not name:
         return ""
     final = name
     if not overwrite:
+        existing = {img.name for img in table.images}
         n = 2
-        while final in table.images:
+        while final in existing:
             final = f"{name}_{n}"
             n += 1
     pixels = [tuple(px) for px in obs.pixels.reshape(-1, 4).tolist()]
     pixels = [(int(r), int(g), int(b), int(a)) for r, g, b, a in pixels]
-    table.images[final] = tmmod.Image(
+    table.images.append(tmmod.Image(
         name=final, width=obs.width, height=obs.height, pixels=pixels,
-    )
+    ))
     return final
 
 
@@ -259,23 +262,29 @@ def find_font_collisions(table: tmmod.Tablemap) -> list[tuple[int, str, list[str
 def find_duplicate_images(table: tmmod.Tablemap, tol_px: int = 0) -> list[tuple[str, str, int]]:
     """Find (name_a, name_b, diff_px) image pairs of same size within tol."""
     dups: list[tuple[str, str, int]] = []
-    by_size: dict[tuple[int, int], list[str]] = {}
-    for name, img in table.images.items():
-        by_size.setdefault((img.width, img.height), []).append(name)
-    for (w, h), names in by_size.items():
-        arrs = {n: np.array(table.images[n].pixels, dtype=np.uint8).reshape((h, w, 4))
-                for n in names}
-        for i in range(len(names)):
-            for j in range(i + 1, len(names)):
-                a, b = names[i], names[j]
-                d = tx.image_diff_count(arrs[a], arrs[b], 0)
+    by_size: dict[tuple[int, int], list[int]] = {}
+    for idx, img in enumerate(table.images):
+        by_size.setdefault((img.width, img.height), []).append(idx)
+    for (w, h), idxs in by_size.items():
+        arrs = {i: np.array(table.images[i].pixels, dtype=np.uint8).reshape((h, w, 4))
+                for i in idxs}
+        for i in range(len(idxs)):
+            for j in range(i + 1, len(idxs)):
+                ia, ib = idxs[i], idxs[j]
+                d = tx.image_diff_count(arrs[ia], arrs[ib], 0)
                 if d <= tol_px:
-                    dups.append((a, b, d))
+                    dups.append((table.images[ia].name, table.images[ib].name, d))
     return dups
 
 
 def remove_image(table: tmmod.Tablemap, name: str) -> bool:
-    return table.images.pop(name, None) is not None
+    """Remove the first image entry matching `name`. OpenScrape allows
+    duplicate names; callers who want to strip all of them should loop."""
+    for i, img in enumerate(table.images):
+        if img.name == name:
+            del table.images[i]
+            return True
+    return False
 
 
 def remove_font(table: tmmod.Tablemap, group: int, hexmash: str) -> bool:
