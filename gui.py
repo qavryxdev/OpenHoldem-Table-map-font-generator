@@ -468,7 +468,10 @@ class App(tk.Tk):
                     f"! VAROVANI: region {r.name} by se musel usekavat "
                     f"(glyph vyssi nez {tx.MAX_SINGLE_CHAR_HEIGHT}px) — "
                     f"T-font matching neni spolehlivy, preved na I-transform"))
-                self.msg_q.put(("warn_clip", (r.name, clipped)))
+                self.msg_q.put(("warn_clip", (
+                    r.name, clipped,
+                    r.left, r.top, r.right, r.bottom,
+                )))
         for g in glyphs:
             key = (g.font_group, g.hexmash)
             if key in self.discarded_glyphs or key in self.pending_glyphs:
@@ -500,14 +503,31 @@ class App(tk.Tk):
                 elif kind == "image":
                     self._handle_image(payload)
                 elif kind == "warn_clip":
-                    name, n = payload
+                    name, n, L, T, R, B = payload
+                    w = R - L + 1
+                    h = B - T + 1
+                    max_h = tx.MAX_SINGLE_CHAR_HEIGHT
+                    # Doporucena vyska: max_h + ~2 px rezerva, centrovane
+                    suggested_h = max_h
+                    trim = h - suggested_h
+                    new_top = T + trim // 2
+                    new_bottom = B - (trim - trim // 2)
                     messagebox.showwarning(
-                        "Region presahuje OpenScrape limit",
-                        f"Region '{name}' obsahuje glyph vyssi nez "
-                        f"{tx.MAX_SINGLE_CHAR_HEIGHT} px — aplikace musi "
-                        f"useknout horni radky ({n} glyph(u) v tomto cyklu).\n\n"
-                        f"T-font matching u nej nebude spolehlivy. "
-                        f"Zmen v OpenScrape transform z T na I.")
+                        "Region exceeds OpenScrape limit",
+                        f"Region '{name}' is {w}x{h} px, but OpenScrape's "
+                        f"T-transform only supports glyphs up to "
+                        f"{max_h} px tall. The app had to crop "
+                        f"{n} glyph(s) in this cycle, so the stored hexmash "
+                        f"would never match live captures.\n\n"
+                        f"Recommended fixes (either one):\n"
+                        f"  1) Change the region's transform from T to I "
+                        f"in OpenScrape (best for card faces / tall glyphs).\n"
+                        f"  2) Shrink the region to at most {w}x{suggested_h} px. "
+                        f"Current bounds: L={L} T={T} R={R} B={B}. "
+                        f"Try: T={new_top} B={new_bottom} "
+                        f"(keeps the glyph center).\n\n"
+                        f"Nothing was stored for this region — fix it and "
+                        f"re-learn.")
         except queue.Empty:
             pass
         self.after(100, self._pump_messages)
