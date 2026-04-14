@@ -37,12 +37,6 @@ class ImageObservation:
 DEFAULT_FUZZY_TOLERANCE = 0.05      # OH default
 IMAGE_MATCH_FRACTION = 0.65         # OH ITypeTransform: 65% pixel threshold
 
-# Uceni pouziva prisnejsi hranici nez OH scraper, aby variantу na okraji
-# tolerance byly povazovany za NOVE (a ulozeny). Pri ostrem matchi pak OH
-# scraper se svou sirsi toleranci pohodlne matchne. Hodnota = zlomek z
-# konfigurovane tolerance TM; typicky 0.7 → uc pri 70% prahu.
-LEARN_TOLERANCE_RATIO = 0.55
-
 _last_debug: dict = {}
 
 
@@ -130,7 +124,7 @@ def observe_region(frame_bgra: np.ndarray, region: tmmod.Region,
             _last_debug["mask_px"] = int(mask.sum())
             _last_debug["n_segs"] = 0
             _last_debug["n_existing"] = len(table.fonts[group])
-            _last_debug["fuzzy_tol"] = _font_tolerance(table, group) * LEARN_TOLERANCE_RATIO
+            _last_debug["fuzzy_tol"] = _font_tolerance(table, group)
             _last_debug["skipped_exact"] = 0
             _last_debug["skipped_fuzzy"] = 0
             _last_debug["skipped_blob"] = 1
@@ -142,23 +136,18 @@ def observe_region(frame_bgra: np.ndarray, region: tmmod.Region,
         _last_debug["mask_px"] = int(mask.sum())
         _last_debug["n_segs"] = len(segs)
         _last_debug["n_existing"] = len(existing)
-        _last_debug["fuzzy_tol"] = fuzzy_tol * LEARN_TOLERANCE_RATIO
+        _last_debug["fuzzy_tol"] = fuzzy_tol
         _last_debug["skipped_exact"] = 0
         _last_debug["skipped_fuzzy"] = 0
         W_region = crop.shape[1]
         H_region = crop.shape[0]
         region_area = W_region * H_region
         mask_density = (mask.sum() / region_area) if region_area else 0.0
-        _last_debug["clipped"] = sum(1 for s in segs if s.height_clipped)
         for s in segs:
             seg_w = s.x_end - s.x_begin + 1
             # reject "whole-region blob" — zly cube matchnul pozadi
             if seg_w > 0.85 * W_region and mask_density > 0.5:
                 _last_debug["skipped_blob"] = _last_debug.get("skipped_blob", 0) + 1
-                continue
-            # glyph musel byt usekavan (height > OH limit) — neuspesne by se ulozil
-            # zkomoleny hexmash, radeji vubec neposilame do UI k ulozeni
-            if s.height_clipped:
                 continue
             # exact hexmash match — already known
             if s.hexmash in existing:
@@ -167,21 +156,18 @@ def observe_region(frame_bgra: np.ndarray, region: tmmod.Region,
             # fuzzy match: if the TM is configured for fuzzy/numeric tolerance
             # and any existing glyph is within weighted-HD tolerance, treat as
             # already covered (don't propose).
-            # pri uceni pouzivame o neco prisnejsi prah (LEARN_TOLERANCE_RATIO)
-            # → hranicni varianty jsou pro nas "nove" a ulozime je, OH scraper
-            # je pak v bezne toleranci pohodlne matchne
-            learn_tol = fuzzy_tol * LEARN_TOLERANCE_RATIO
-            if learn_tol > 0 and _fuzzy_font_match(s.xvals, existing, learn_tol):
+            if fuzzy_tol > 0 and _fuzzy_font_match(s.xvals, existing, fuzzy_tol):
                 _last_debug["skipped_fuzzy"] += 1
                 continue
-            # preview = cely region z TM (neorezavat na segment),
-            # aby user videl kontext celeho card regionu
-            full_rgba = tx.region_to_rgba_array(crop)
-            full_mask = mask.T  # [H, W]
+            H = crop.shape[0]
+            y0, y1 = max(0, s.y_begin), min(H, s.y_end + 1)
+            x0, x1 = s.x_begin, s.x_end + 1
+            glyph_rgba = tx.region_to_rgba_array(crop[y0:y1, x0:x1])
+            sub_mask = mask[x0:x1, y0:y1].T
             glyphs.append(GlyphObservation(
                 region=region.name, font_group=group,
                 hexmash=s.hexmash, xvals=s.xvals,
-                pixels=full_rgba, mask_preview=full_mask,
+                pixels=glyph_rgba, mask_preview=sub_mask,
             ))
 
     elif kind == "I":
@@ -193,15 +179,15 @@ def observe_region(frame_bgra: np.ndarray, region: tmmod.Region,
         obs_flat = rgba
         match: str | None = None
         near: list[tuple[str, int]] = []
-        for img in table.images:
+        for name, img in table.images.items():
             if img.width != w or img.height != h:
                 continue
             existing_arr = np.array(img.pixels, dtype=np.uint8).reshape((h, w, 4))
             if _image_matches(obs_flat, existing_arr, region.radius):
-                match = img.name
+                match = name
                 break
             diff = tx.image_diff_count(obs_flat, existing_arr, image_tolerance_px)
-            near.append((img.name, diff))
+            near.append((name, diff))
         near.sort(key=lambda x: x[1])
         images.append(ImageObservation(
             region=region.name, width=w, height=h, pixels=rgba,
@@ -211,35 +197,22 @@ def observe_region(frame_bgra: np.ndarray, region: tmmod.Region,
     return glyphs, images
 
 
-def add_glyph(table: tmmod.Tablemap, obs: GlyphObservation, char: str,
-              overwrite: bool = False) -> bool:
-    if obs.hexmash in table.fonts[obs.font_group] and not overwrite:
+def add_glyph(table: tmmod.Tablemap, obs: GlyphObservation, char: str) -> bool:
+    if obs.hexmash in table.fonts[obs.font_group]:
         return False
     table.fonts[obs.font_group][obs.hexmash] = tmmod.Font(ch=char, x=list(obs.xvals))
     return True
 
 
-def add_image(table: tmmod.Tablemap, obs: ImageObservation, name: str,
-              overwrite: bool = False) -> str:
-    """Add image under `name`. OpenScrape allows multiple i$ entries sharing
-    the same name — when overwrite=True, just append (duplicates ok). When
-    overwrite=False, auto-suffix _2/_3/... to keep names unique. Returns the
-    name stored."""
-    if not name:
-        return ""
-    final = name
-    if not overwrite:
-        existing = {img.name for img in table.images}
-        n = 2
-        while final in existing:
-            final = f"{name}_{n}"
-            n += 1
+def add_image(table: tmmod.Tablemap, obs: ImageObservation, name: str) -> bool:
+    if name in table.images:
+        return False
     pixels = [tuple(px) for px in obs.pixels.reshape(-1, 4).tolist()]
     pixels = [(int(r), int(g), int(b), int(a)) for r, g, b, a in pixels]
-    table.images.append(tmmod.Image(
-        name=final, width=obs.width, height=obs.height, pixels=pixels,
-    ))
-    return final
+    table.images[name] = tmmod.Image(
+        name=name, width=obs.width, height=obs.height, pixels=pixels,
+    )
+    return True
 
 
 # ---------------- pruning ----------------
@@ -262,29 +235,23 @@ def find_font_collisions(table: tmmod.Tablemap) -> list[tuple[int, str, list[str
 def find_duplicate_images(table: tmmod.Tablemap, tol_px: int = 0) -> list[tuple[str, str, int]]:
     """Find (name_a, name_b, diff_px) image pairs of same size within tol."""
     dups: list[tuple[str, str, int]] = []
-    by_size: dict[tuple[int, int], list[int]] = {}
-    for idx, img in enumerate(table.images):
-        by_size.setdefault((img.width, img.height), []).append(idx)
-    for (w, h), idxs in by_size.items():
-        arrs = {i: np.array(table.images[i].pixels, dtype=np.uint8).reshape((h, w, 4))
-                for i in idxs}
-        for i in range(len(idxs)):
-            for j in range(i + 1, len(idxs)):
-                ia, ib = idxs[i], idxs[j]
-                d = tx.image_diff_count(arrs[ia], arrs[ib], 0)
+    by_size: dict[tuple[int, int], list[str]] = {}
+    for name, img in table.images.items():
+        by_size.setdefault((img.width, img.height), []).append(name)
+    for (w, h), names in by_size.items():
+        arrs = {n: np.array(table.images[n].pixels, dtype=np.uint8).reshape((h, w, 4))
+                for n in names}
+        for i in range(len(names)):
+            for j in range(i + 1, len(names)):
+                a, b = names[i], names[j]
+                d = tx.image_diff_count(arrs[a], arrs[b], 0)
                 if d <= tol_px:
-                    dups.append((table.images[ia].name, table.images[ib].name, d))
+                    dups.append((a, b, d))
     return dups
 
 
 def remove_image(table: tmmod.Tablemap, name: str) -> bool:
-    """Remove the first image entry matching `name`. OpenScrape allows
-    duplicate names; callers who want to strip all of them should loop."""
-    for i, img in enumerate(table.images):
-        if img.name == name:
-            del table.images[i]
-            return True
-    return False
+    return table.images.pop(name, None) is not None
 
 
 def remove_font(table: tmmod.Tablemap, group: int, hexmash: str) -> bool:

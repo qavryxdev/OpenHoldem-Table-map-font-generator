@@ -17,7 +17,6 @@ from PIL import ImageTk
 import capture
 import learn
 import tm as tmmod
-import transform as tx
 
 
 SCALE = 4   # glyph preview zoom
@@ -37,8 +36,7 @@ class LabelDialog(tk.Toplevel):
 
     def __init__(self, parent: tk.Misc, title: str, preview_rgba: np.ndarray,
                  context_text: str, default: str = "", scale: int = SCALE,
-                 save_tm_cb=None, suit_picker: bool = False,
-                 rank_picker: bool = False):
+                 save_tm_cb=None):
         super().__init__(parent)
         self.title(title)
         self.resizable(False, False)
@@ -58,39 +56,6 @@ class LabelDialog(tk.Toplevel):
         self.ent.focus_set()
         self.ent.bind("<Return>", lambda _e: self._ok())
         self.ent.bind("<Escape>", lambda _e: self._skip())
-
-        if suit_picker:
-            suitfrm = tk.Frame(self)
-            suitfrm.pack(padx=8, pady=4)
-            tk.Label(suitfrm, text="Suit:",
-                     font=("Segoe UI", 10, "bold")).pack(side="left", padx=4)
-            for ch, label, fg in (
-                ("h", "♥ Hearts (h)", "#c0282a"),
-                ("d", "♦ Diamonds (d)", "#c0282a"),
-                ("c", "♣ Clubs (c)", "#111"),
-                ("s", "♠ Spades (s)", "#111"),
-            ):
-                tk.Button(suitfrm, text=label, fg=fg, width=13,
-                          command=lambda c=ch: self._pick_suit(c)
-                          ).pack(side="left", padx=2)
-            # klavesove zkratky h/d/c/s
-            for ch in "hdcs":
-                self.bind(f"<Key-{ch}>", lambda _e, c=ch: self._pick_suit(c))
-
-        if rank_picker:
-            rankfrm = tk.Frame(self)
-            rankfrm.pack(padx=8, pady=4)
-            tk.Label(rankfrm, text="Rank:",
-                     font=("Segoe UI", 10, "bold")).pack(side="left", padx=4)
-            for ch in ("2", "3", "4", "5", "6", "7", "8", "9",
-                       "T", "J", "Q", "K", "A"):
-                tk.Button(rankfrm, text=ch, width=3,
-                          font=("Segoe UI", 10, "bold"),
-                          command=lambda c=ch: self._pick_rank(c)
-                          ).pack(side="left", padx=1)
-            for ch in "23456789tjqkaTJQKA":
-                self.bind(f"<Key-{ch}>",
-                          lambda _e, c=ch.upper(): self._pick_rank(c))
 
         btns = tk.Frame(self)
         btns.pack(padx=8, pady=8)
@@ -130,14 +95,6 @@ class LabelDialog(tk.Toplevel):
     def _save_tm(self):
         if self._save_tm_cb is not None:
             self._save_tm_cb()
-
-    def _pick_suit(self, ch: str):
-        self.result = ch
-        self.destroy()
-
-    def _pick_rank(self, ch: str):
-        self.result = ch
-        self.destroy()
 
 
 class App(tk.Tk):
@@ -302,31 +259,12 @@ class App(tk.Tk):
 
     # ---------- bookkeeping ----------
 
-    _LOG_MAX_BYTES = 2 * 1024 * 1024  # 2 MB strop — starsi radky odhodime
-
     def log(self, s: str) -> None:
         self.log_txt.insert("end", s + "\n")
         self.log_txt.see("end")
         try:
-            import os
-            path = "ohlearn.log"
-            line = s + "\n"
-            # kdyz by soubor po zapisu presahl limit, rotuj: nech posledni ~1MB
-            if os.path.exists(path):
-                size = os.path.getsize(path)
-                if size + len(line.encode("utf-8")) > self._LOG_MAX_BYTES:
-                    keep = self._LOG_MAX_BYTES // 2
-                    with open(path, "rb") as f:
-                        f.seek(max(0, size - keep))
-                        tail = f.read()
-                    # zahoď moznou pulku radky na zacatku
-                    nl = tail.find(b"\n")
-                    if nl >= 0:
-                        tail = tail[nl + 1:]
-                    with open(path, "wb") as f:
-                        f.write(tail)
-            with open(path, "a", encoding="utf-8") as f:
-                f.write(line)
+            with open("ohlearn.log", "a", encoding="utf-8") as f:
+                f.write(s + "\n")
         except OSError:
             pass
 
@@ -450,9 +388,6 @@ class App(tk.Tk):
         if is_t:
             d = dict(learn._last_debug)
             n_new = len(glyphs)
-            clipped = d.get("clipped", 0)
-            clip_tag = (f"  !!! USEKAVA {clipped} glyph(u) — region moc vysoky "
-                        f"pro OpenScrape, zmen na I-transform") if clipped else ""
             self.msg_q.put(("log",
                 f"  T {r.name:20} mask={d.get('mask_px',0):5d}px "
                 f"segs={d.get('n_segs',0):2d} "
@@ -460,18 +395,7 @@ class App(tk.Tk):
                 f"skip_exact={d.get('skipped_exact',0)} "
                 f"skip_fuzzy={d.get('skipped_fuzzy',0)} "
                 f"new={len(glyphs)} "
-                f"cube=0x{r.color:08x}/{r.radius}"
-                f"{clip_tag}"))
-            if clipped and r.name not in getattr(self, "_clip_warned", set()):
-                self._clip_warned = getattr(self, "_clip_warned", set()) | {r.name}
-                self.msg_q.put(("log",
-                    f"! VAROVANI: region {r.name} by se musel usekavat "
-                    f"(glyph vyssi nez {tx.MAX_SINGLE_CHAR_HEIGHT}px) — "
-                    f"T-font matching neni spolehlivy, preved na I-transform"))
-                self.msg_q.put(("warn_clip", (
-                    r.name, clipped,
-                    r.left, r.top, r.right, r.bottom,
-                )))
+                f"cube=0x{r.color:08x}/{r.radius}"))
         for g in glyphs:
             key = (g.font_group, g.hexmash)
             if key in self.discarded_glyphs or key in self.pending_glyphs:
@@ -502,32 +426,6 @@ class App(tk.Tk):
                     self._handle_glyph(payload)
                 elif kind == "image":
                     self._handle_image(payload)
-                elif kind == "warn_clip":
-                    name, n, L, T, R, B = payload
-                    w = R - L + 1
-                    h = B - T + 1
-                    max_h = tx.MAX_SINGLE_CHAR_HEIGHT
-                    # Doporucena vyska: max_h + ~2 px rezerva, centrovane
-                    suggested_h = max_h
-                    trim = h - suggested_h
-                    new_top = T + trim // 2
-                    new_bottom = B - (trim - trim // 2)
-                    messagebox.showwarning(
-                        "Region exceeds OpenScrape limit",
-                        f"Region '{name}' is {w}x{h} px, but OpenScrape's "
-                        f"T-transform only supports glyphs up to "
-                        f"{max_h} px tall. The app had to crop "
-                        f"{n} glyph(s) in this cycle, so the stored hexmash "
-                        f"would never match live captures.\n\n"
-                        f"Recommended fixes (either one):\n"
-                        f"  1) Change the region's transform from T to I "
-                        f"in OpenScrape (best for card faces / tall glyphs).\n"
-                        f"  2) Shrink the region to at most {w}x{suggested_h} px. "
-                        f"Current bounds: L={L} T={T} R={R} B={B}. "
-                        f"Try: T={new_top} B={new_bottom} "
-                        f"(keeps the glyph center).\n\n"
-                        f"Nothing was stored for this region — fix it and "
-                        f"re-learn.")
         except queue.Empty:
             pass
         self.after(100, self._pump_messages)
@@ -543,13 +441,7 @@ class App(tk.Tk):
         ctx = (f"region: {g.region}    font group: t{g.font_group}\n"
                f"hexmash: {g.hexmash}\n"
                f"width  : {len(g.xvals)} cols")
-        rlow = g.region.lower()
-        is_suit = "suit" in rlow
-        is_rank = "rank" in rlow
-        dlg = LabelDialog(self, "New glyph", g.pixels, ctx,
-                          save_tm_cb=self._save,
-                          suit_picker=is_suit,
-                          rank_picker=is_rank)
+        dlg = LabelDialog(self, "New glyph", g.pixels, ctx, save_tm_cb=self._save)
         if dlg.result == "__DISCARD__":
             self.discarded_glyphs.add((g.font_group, g.hexmash))
             self.log(f"[-] discarded glyph t{g.font_group}$ hexmash={g.hexmash}")
@@ -559,24 +451,8 @@ class App(tk.Tk):
             self.discarded_glyphs.add((g.font_group, g.hexmash))
             return
         label = dlg.result[0]  # OH fonts store a single char
-        overwrite = (is_suit and label in ("h", "d", "c", "s")) or \
-                    (is_rank and label in ("2","3","4","5","6","7","8","9","T","J","Q","K","A"))
-        # pro card regiony (cardface + suit/rank) uloz bitmapu CELEHO regionu
-        # jako image — ne orezany font-segment, protoze user vidi v nahledu
-        # cely region a ocekava stejnou bitmapu v TM
-        # Ulozit font hexmash v kazdem pripade — jinak observer ten samy
-        # glyph v dalsim cyklu znovu nabidne k labelovani. Pro cardface regiony
-        # navic uloz CELOU bitmapu jako image (odpovida tomu, co vidi user).
-        ok = learn.add_glyph(self.table, g, label, overwrite=overwrite)
-        self.log(f"[+] t{g.font_group}${label}  hexmash={g.hexmash}  (stored={ok})")
-        if (is_suit or is_rank) and "cardface" in rlow:
-            h_px, w_px = g.pixels.shape[:2]
-            im_obs = learn.ImageObservation(
-                region=g.region, width=w_px, height=h_px,
-                pixels=g.pixels, exact_name=None, near_matches=[],
-            )
-            saved = learn.add_image(self.table, im_obs, label, overwrite=overwrite)
-            self.log(f"[+] i${saved or label}  {w_px}x{h_px}  (from cardface region)")
+        learn.add_glyph(self.table, g, label)
+        self.log(f"[+] t{g.font_group}${label}  hexmash={g.hexmash}")
         self._update_stats()
         self._refresh_region_markers()
 
@@ -591,13 +467,8 @@ class App(tk.Tk):
         proposed = f"{im.region}_{self.image_name_counter:03d}"
         ctx = (f"region: {im.region}    size: {im.width}x{im.height}\n"
                f"nearest existing: {near_str}")
-        rlow = im.region.lower()
-        is_suit = "suit" in rlow
-        is_rank = "rank" in rlow
-        dlg = LabelDialog(self, "New image", im.pixels, ctx, default="", scale=2,
-                          save_tm_cb=self._save,
-                          suit_picker=is_suit,
-                          rank_picker=is_rank)
+        dlg = LabelDialog(self, "New image", im.pixels, ctx, default=proposed, scale=2,
+                          save_tm_cb=self._save)
         if dlg.result == "__DISCARD__":
             self.discarded_images.add((im.width, im.height, im.pixels.tobytes()))
             self.log(f"[-] discarded image for {im.region}")
@@ -605,10 +476,8 @@ class App(tk.Tk):
         if dlg.result is None:
             self.discarded_images.add((im.width, im.height, im.pixels.tobytes()))
             return
-        overwrite = (is_suit and dlg.result in ("h", "d", "c", "s")) or \
-                    (is_rank and dlg.result in ("2","3","4","5","6","7","8","9","T","J","Q","K","A"))
-        saved = learn.add_image(self.table, im, dlg.result, overwrite=overwrite)
-        self.log(f"[+] i${saved or dlg.result}  {im.width}x{im.height}")
+        learn.add_image(self.table, im, dlg.result)
+        self.log(f"[+] i${dlg.result}  {im.width}x{im.height}")
         self._update_stats()
         self._refresh_region_markers()
 

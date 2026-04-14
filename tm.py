@@ -92,7 +92,7 @@ class Tablemap:
     hashes: list[dict[int, HashValue]] = field(
         default_factory=lambda: [dict() for _ in range(N_HASH_GROUPS)]
     )
-    images: list[Image] = field(default_factory=list)
+    images: dict[str, Image] = field(default_factory=dict)
     version_line: str = VERSION_HEADER
     header_comment: str = "// OpenScrape 13.0.2"
 
@@ -213,7 +213,7 @@ def load(path: str) -> Tablemap:
                     r = int(hx[4:6], 16)
                     a = int(hx[6:8], 16)
                     pixels.append((r, g, b, a))
-            tm.images.append(Image(name=name, width=w, height=h, pixels=pixels))
+            tm.images[name] = Image(name=name, width=w, height=h, pixels=pixels)
 
     return tm
 
@@ -276,7 +276,7 @@ def save(tm: Tablemap, path: str | None = None) -> None:
     out.append("\r\n")
 
     hdr("images")
-    for img in sorted(tm.images, key=lambda i: i.name):
+    for img in sorted(tm.images.values(), key=lambda i: i.name):
         out.append(f"i${img.name:<16} {img.width:<3d} {img.height:<3d}\r\n")
         for y in range(img.height):
             row = []
