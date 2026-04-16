@@ -18,6 +18,9 @@ def _error_box(title: str, msg: str) -> None:
 
 
 def main() -> int:
+    import bootstrap
+    if not bootstrap.check_and_install():
+        return 0
     import tm as tmmod
     import gui
 

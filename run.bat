@@ -11,16 +11,24 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM Prvni spusteni — nainstaluj zavislosti
-if not exist ".deps_ok" (
-    echo Instaluji zavislosti ...
+REM Hash requirements.txt — pri zmene se zavislosti preinstaluji
+set "CURHASH="
+for /f "tokens=*" %%H in ('certutil -hashfile requirements.txt SHA1 ^| findstr /v ":" ^| findstr /v "CertUtil"') do (
+    if not defined CURHASH set "CURHASH=%%H"
+)
+
+set "STOREDHASH="
+if exist ".deps_ok" set /p STOREDHASH=<.deps_ok
+
+if not "%CURHASH%"=="%STOREDHASH%" (
+    echo Instaluji/aktualizuji zavislosti ...
     python -m pip install --disable-pip-version-check -q -r requirements.txt
     if errorlevel 1 (
         echo [CHYBA] pip install selhal.
         pause
         exit /b 1
     )
-    echo ok> .deps_ok
+    >.deps_ok echo %CURHASH%
 )
 
 python __main__.py %*
