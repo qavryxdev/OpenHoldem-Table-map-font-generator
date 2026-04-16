@@ -1,12 +1,18 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
+SPEC_DIR = os.path.dirname(os.path.abspath(SPEC))
 
 a = Analysis(
     ['__main__.py'],
-    pathex=[],
+    pathex=[SPEC_DIR],
     binaries=[],
     datas=[],
-    hiddenimports=['win32gui', 'win32ui', 'win32con'],
+    hiddenimports=[
+        'win32gui', 'win32ui', 'win32con',
+        'bootstrap', 'tm', 'gui', 'capture',
+        'learn', 'ocr_suggest', 'transform',
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
