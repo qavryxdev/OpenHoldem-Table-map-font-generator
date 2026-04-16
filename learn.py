@@ -37,12 +37,27 @@ class ImageObservation:
 DEFAULT_FUZZY_TOLERANCE = 0.05      # OH default
 IMAGE_MATCH_FRACTION = 0.65         # OH ITypeTransform: 65% pixel threshold
 
+# Cap na toleranci pri UCENI. TM muze mit s$tNtype=0.35, ale OH/OpenScrape
+# uzivatel casto jede na stricter pragu (~0.20). Kdyz learner pouzije raw
+# 0.35, preskoci varianty, ktere by pri 0.20 prahu uz nezmatchly — a OH je
+# pak nenascrapuje. Tento cap omezi "uz pokryto" rozhodnuti na stricter
+# hodnotu, takze se nasbira vic bitmap a OH si vystaci i pri nizsi tolerance.
+# Efektivni prah = min(TM_tolerance, LEARN_FUZZY_CAP). 0 = bez capu.
+LEARN_FUZZY_CAP = 0.20
+
 _last_debug: dict = {}
+
+
+def set_learn_fuzzy_cap(v: float) -> None:
+    """Runtime override capu z GUI/CLI. v<=0 cap vypne (vrati se k raw TM tol)."""
+    global LEARN_FUZZY_CAP
+    LEARN_FUZZY_CAP = max(0.0, float(v))
 
 
 def _font_tolerance(table: tmmod.Tablemap, group: int) -> float:
     """Read s$tNtype to decide if fuzzy matching is on for this font group.
-    Returns 0.0 if plain (exact hexmash only), else weighted-hd tolerance."""
+    Returns 0.0 if plain (exact hexmash only), else weighted-hd tolerance.
+    Tohle je RAW TM hodnota — co OH scraper pouzije za behu."""
     sym = table.symbols.get(f"t{group}type")
     if sym is None:
         return 0.0
@@ -54,6 +69,18 @@ def _font_tolerance(table: tmmod.Tablemap, group: int) -> float:
         return v if v > 0 else 0.0
     except ValueError:
         return 0.0
+
+
+def _learn_tolerance(table: tmmod.Tablemap, group: int) -> float:
+    """Efektivni prah, ktery LEARNER pouziva pro rozhodnuti "uz pokryto".
+    Capovany na LEARN_FUZZY_CAP (kdyz > 0), aby se nasbiralo vic bitmap pro
+    scrapery bezici na stricter toleranci nez TM deklaruje."""
+    raw = _font_tolerance(table, group)
+    if raw <= 0:
+        return 0.0
+    if LEARN_FUZZY_CAP > 0:
+        return min(raw, LEARN_FUZZY_CAP)
+    return raw
 
 
 def _fuzzy_font_match(seg_xs: list[int], fonts: dict[str, tmmod.Font],
@@ -154,18 +181,21 @@ def observe_region(frame_bgra: np.ndarray, region: tmmod.Region,
             _last_debug["n_segs"] = 0
             _last_debug["n_existing"] = len(table.fonts[group])
             _last_debug["fuzzy_tol"] = _font_tolerance(table, group)
+            _last_debug["learn_tol"] = _learn_tolerance(table, group)
             _last_debug["skipped_exact"] = 0
             _last_debug["skipped_fuzzy"] = 0
             _last_debug["skipped_blob"] = 1
             return [], []
         segs = tx.segment_chars(mask)
         existing = table.fonts[group]
-        fuzzy_tol = _font_tolerance(table, group)
+        tm_tol = _font_tolerance(table, group)
+        fuzzy_tol = _learn_tolerance(table, group)
         _last_debug["region"] = region.name
         _last_debug["mask_px"] = int(mask.sum())
         _last_debug["n_segs"] = len(segs)
         _last_debug["n_existing"] = len(existing)
-        _last_debug["fuzzy_tol"] = fuzzy_tol
+        _last_debug["fuzzy_tol"] = tm_tol
+        _last_debug["learn_tol"] = fuzzy_tol
         _last_debug["skipped_exact"] = 0
         _last_debug["skipped_fuzzy"] = 0
         W_region = crop.shape[1]

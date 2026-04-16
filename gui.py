@@ -169,6 +169,14 @@ class App(tk.Tk):
         tk.Checkbutton(cmd, text="Auto-tune cube (RGB/radius)",
                        variable=self.autotune_var).pack(side="left", padx=12)
 
+        tk.Label(cmd, text="Learn-tol cap:").pack(side="left", padx=(12, 2))
+        self.learn_cap_var = tk.StringVar(value=f"{learn.LEARN_FUZZY_CAP:.2f}")
+        cap_entry = tk.Entry(cmd, textvariable=self.learn_cap_var, width=5)
+        cap_entry.pack(side="left")
+        cap_entry.bind("<FocusOut>", self._apply_learn_cap)
+        cap_entry.bind("<Return>", self._apply_learn_cap)
+        tk.Label(cmd, text="(0 = TM raw)", fg="#666").pack(side="left", padx=2)
+
         stats = tk.LabelFrame(self, text="Tablemap stats")
         stats.pack(fill="x", padx=6, pady=6)
         self.stats_lbl = tk.Label(stats, justify="left", font=("Consolas", 9))
@@ -428,13 +436,17 @@ class App(tk.Tk):
         if is_t:
             d = dict(learn._last_debug)
             n_new = len(glyphs)
+            tm_tol = d.get('fuzzy_tol', 0.0)
+            lr_tol = d.get('learn_tol', tm_tol)
+            tol_str = f"tol={lr_tol:.2f}" if abs(lr_tol - tm_tol) < 1e-9 else \
+                      f"tol={lr_tol:.2f}(TM={tm_tol:.2f})"
             self.msg_q.put(("log",
                 f"  T {r.name:20} mask={d.get('mask_px',0):5d}px "
                 f"segs={d.get('n_segs',0):2d} "
                 f"existing={d.get('n_existing',0):3d} "
                 f"skip_exact={d.get('skipped_exact',0)} "
                 f"skip_fuzzy={d.get('skipped_fuzzy',0)} "
-                f"new={len(glyphs)} "
+                f"new={len(glyphs)} {tol_str} "
                 f"cube=0x{r.color:08x}/{r.radius}"))
         for g in glyphs:
             key = (g.font_group, g.hexmash)
@@ -541,6 +553,21 @@ class App(tk.Tk):
             self.log(f"[S] saved {self.table.path} (backup: .bak)")
         except Exception as e:
             messagebox.showerror("ohlearn", f"save failed: {e}")
+
+    def _apply_learn_cap(self, _event=None):
+        raw = self.learn_cap_var.get().strip().replace(",", ".")
+        try:
+            v = float(raw) if raw else 0.0
+        except ValueError:
+            self.log(f"[!] invalid learn-cap: {raw!r}")
+            self.learn_cap_var.set(f"{learn.LEARN_FUZZY_CAP:.2f}")
+            return
+        learn.set_learn_fuzzy_cap(v)
+        self.learn_cap_var.set(f"{learn.LEARN_FUZZY_CAP:.2f}")
+        if v <= 0:
+            self.log("[i] learn-tol cap DISABLED — using raw TM tolerance")
+        else:
+            self.log(f"[i] learn-tol cap = {v:.2f} (effective = min(TM_tol, {v:.2f}))")
 
     def _prune(self):
         dups = learn.find_duplicate_images(self.table, tol_px=0)
