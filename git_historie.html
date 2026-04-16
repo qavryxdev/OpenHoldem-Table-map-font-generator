@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CashGame Bot -- Git Historie</title>
+<style>
+  :root {
+    --bg: #0d1117; --fg: #c9d1d9; --border: #30363d;
+    --header-bg: #161b22; --row-hover: #1c2128;
+    --accent: #58a6ff; --green: #3fb950; --red: #f85149;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg); color: var(--fg);
+    padding: 24px; line-height: 1.5;
+  }
+  h1 {
+    font-size: 22px; font-weight: 600; margin-bottom: 6px;
+    color: #fff; letter-spacing: -0.3px;
+  }
+  .meta {
+    font-size: 12px; color: #8b949e; margin-bottom: 18px;
+  }
+  /* Stats bar */
+  .stats {
+    display: flex; gap: 16px; flex-wrap: wrap;
+    margin-bottom: 18px;
+  }
+  .stat-card {
+    background: var(--header-bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 18px; min-width: 120px;
+  }
+  .stat-card .label { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-card .value { font-size: 22px; font-weight: 700; color: #fff; }
+  /* Filter */
+  .filter-bar {
+    display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px;
+  }
+  .filter-btn {
+    border: 1px solid var(--border); background: var(--header-bg);
+    color: var(--fg); padding: 4px 12px; border-radius: 16px;
+    font-size: 12px; cursor: pointer; transition: all 0.15s;
+  }
+  .filter-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .filter-btn.active { background: var(--accent); color: #0d1117; border-color: var(--accent); font-weight: 600; }
+  /* Search */
+  .search {
+    width: 100%; max-width: 400px; padding: 6px 12px;
+    background: var(--header-bg); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--fg); font-size: 13px;
+    margin-bottom: 14px; outline: none;
+  }
+  .search:focus { border-color: var(--accent); }
+  /* Table */
+  .table-wrap {
+    overflow-x: auto; border: 1px solid var(--border); border-radius: 8px;
+  }
+  table {
+    width: 100%; border-collapse: collapse; font-size: 13px;
+  }
+  thead { position: sticky; top: 0; z-index: 2; }
+  th {
+    background: var(--header-bg); color: #8b949e;
+    padding: 10px 12px; text-align: left; font-weight: 600;
+    border-bottom: 1px solid var(--border); white-space: nowrap;
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px;
+    cursor: pointer; user-select: none;
+  }
+  th:hover { color: var(--accent); }
+  th .arrow { font-size: 10px; margin-left: 4px; opacity: 0.4; }
+  th.sorted .arrow { opacity: 1; color: var(--accent); }
+  td {
+    padding: 8px 12px; border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:hover td { background: var(--row-hover); }
+  tr.hidden { display: none; }
+  /* Cells */
+  .hash {
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 12px; color: var(--accent);
+  }
+  .date { white-space: nowrap; color: #8b949e; font-size: 12px; }
+  .version {
+    font-family: monospace; font-weight: 700; color: #fff;
+    white-space: nowrap;
+  }
+  .subject { max-width: 520px; }
+  .subject summary { cursor: pointer; }
+  .subject .body {
+    margin-top: 6px; font-size: 12px; color: #8b949e;
+    white-space: pre-wrap; max-height: 200px; overflow-y: auto;
+  }
+  .badge {
+    display: inline-block; padding: 1px 8px; border-radius: 10px;
+    font-size: 11px; font-weight: 600; white-space: nowrap;
+    margin: 1px 2px;
+  }
+  .tag {
+    display: inline-block; padding: 1px 6px; border-radius: 4px;
+    font-size: 10px; font-family: monospace; margin: 1px 1px;
+    background: #21262d; color: #8b949e; border: 1px solid var(--border);
+  }
+  .branch {
+    display: inline-block; padding: 1px 8px; border-radius: 10px;
+    font-size: 10px; font-family: monospace; font-weight: 600;
+    margin: 1px 2px; color: #fff; white-space: nowrap;
+  }
+  .ins { color: var(--green); font-family: monospace; font-size: 12px; }
+  .del { color: var(--red); font-family: monospace; font-size: 12px; }
+  .net { font-family: monospace; font-size: 12px; font-weight: 600; }
+  .net.pos { color: var(--green); }
+  .net.neg { color: var(--red); }
+  .net.zero { color: #8b949e; }
+  .bar {
+    display: inline-block; height: 8px; border-radius: 2px;
+    vertical-align: middle;
+  }
+  .bar-ins { background: var(--green); }
+  .bar-del { background: var(--red); }
+  .files {
+    font-size: 11px; color: #8b949e; font-family: monospace;
+  }
+  /* Footer */
+  footer {
+    margin-top: 18px; font-size: 11px; color: #484f58;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<h1>CashGame Bot -- Git Historie</h1>
+<p class="meta">Vygenerovano: 2026-04-14 21:59:30 &nbsp;|&nbsp; Repo: CashGame &nbsp;|&nbsp; Vetve: <span class="branch" style="background:#1f6feb">master</span></p>
+
+<div class="stats">
+  <div class="stat-card"><div class="label">Commitu</div><div class="value">37</div></div>
+  <div class="stat-card"><div class="label">Radku OHF</div><div class="value">0</div></div>
+  <div class="stat-card"><div class="label">Celkem +</div><div class="value ins">+7 906</div></div>
+  <div class="stat-card"><div class="label">Celkem -</div><div class="value del">-5 990</div></div>
+  <div class="stat-card"><div class="label">Poslednich 7 dni</div><div class="value">37</div></div>
+</div>
+
+<input class="search" type="text" id="search" placeholder="Hledat (verze, tag, popis...)">
+<div class="filter-bar" id="filters">
+  <button class="filter-btn active" data-cat="all">Vse</button>
+  <button class="filter-btn" data-cat="infra">Infra</button>
+  <button class="filter-btn" data-cat="other">Other</button>
+</div>
+<div class="filter-bar" id="branch_filters">
+  <button class="filter-btn active" data-branch="all">Vsechny vetve</button>
+  <button class="filter-btn" data-branch="master" style="border-color:#1f6feb">master</button>
+</div>
+
+<div class="table-wrap">
+<table id="hist">
+<thead>
+<tr>
+  <th data-col="0">Hash <span class="arrow">&#9650;</span></th>
+  <th data-col="1">Datum <span class="arrow">&#9660;</span></th>
+  <th data-col="2">Verze <span class="arrow">&#9650;</span></th>
+  <th data-col="3">Vetev</th>
+  <th data-col="4">Popis</th>
+  <th data-col="5">Kategorie <span class="arrow">&#9650;</span></th>
+  <th data-col="6">Tagy</th>
+  <th data-col="7">+/- <span class="arrow">&#9650;</span></th>
+  <th data-col="8">Net <span class="arrow">&#9650;</span></th>
+  <th data-col="9">Soubory</th>
+</tr>
+</thead>
+<tbody>
+<tr data-cat="other" data-branches="master"><td class="hash">e84f01b</td><td class="date" data-sort="2026-04-14T21:59:04+02:00">2026-04-14 21:59</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject"><details><summary>feat: protect frozen exe entrypoint with messagebox error handler|Windowed PyInstaller builds swallow startup errors — wrap main() in a</summary><div class="body">try/except that routes unhandled exceptions and the &quot;no TM found&quot; case
+to a Windows messagebox. Also search for the TM in the exe&#x27;s own
+directory, not only CWD.
+
+Ignore PyInstaller build artifacts.
+
+Co-Authored-By: Claude Opus 4.6 &lt;noreply@anthropic.com&gt;</div></details></td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="52"><span class="ins">+45</span> <span class="del">-7</span><br><span class="bar bar-ins" style="width:80px"></span> <span class="bar bar-del" style="width:12px"></span></td><td class="net pos" data-sort="38">+38</td><td class="files">.gitignore<br>__main__.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">27cb80c</td><td class="date" data-sort="2026-04-14T21:41:45+02:00">2026-04-14 21:41</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject"><details><summary>feat: cap ohlearn.log at 2 MB with tail retention|When the file would exceed 2 MB, keep roughly the last 1 MB and drop the</summary><div class="body">older prefix so the log never grows unbounded.
+
+Co-Authored-By: Claude Opus 4.6 &lt;noreply@anthropic.com&gt;</div></details></td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="24"><span class="ins">+23</span> <span class="del">-1</span><br><span class="bar bar-ins" style="width:80px"></span> <span class="bar bar-del" style="width:3px"></span></td><td class="net pos" data-sort="22">+22</td><td class="files">gui.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">8b349eb</td><td class="date" data-sort="2026-04-14T21:38:40+02:00">2026-04-14 21:38</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject"><details><summary>fix: decode region color as Windows COLORREF (0xAABBGGRR), not ARGB|OH stores r.color as COLORREF with alpha in the high byte — R lives in</summary><div class="body">the low byte, not the high one. We were treating it as 0xAARRGGBB, so
+the color-cube center had R and B swapped and no captured pixel ever
+matched (mask=0 everywhere).
+
+Also force alpha=0xff on the captured BGRA buffer: GDI/PrintWindow
+leaves alpha=0 which made the 4D ARGB cube miss by 255 on every pixel.
+
+Co-Authored-By: Claude Opus 4.6 &lt;noreply@anthropic.com&gt;</div></details></td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="41"><span class="ins">+9</span> <span class="del">-32</span><br><span class="bar bar-ins" style="width:22px"></span> <span class="bar bar-del" style="width:80px"></span></td><td class="net neg" data-sort="-23">-23</td><td class="files">capture.py<br>gui.py<br>transform.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">d9a0aa6</td><td class="date" data-sort="2026-04-14T21:20:22+02:00">2026-04-14 21:20</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject"><details><summary>chore: untrack Coin_7man TM, ignore *.tm/*.tmn/*.osdb2|TM files carry user-specific learning data — keep them local.</summary><div class="body">Co-Authored-By: Claude Opus 4.6 &lt;noreply@anthropic.com&gt;</div></details></td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="805"><span class="ins">+3</span> <span class="del">-802</span><br><span class="bar bar-ins" style="width:1px"></span> <span class="bar bar-del" style="width:80px"></span></td><td class="net neg" data-sort="-799">-799</td><td class="files">.gitignore<br>Coin_7man_1383x1012.tm</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">eb3176f</td><td class="date" data-sort="2026-04-14T21:17:17+02:00">2026-04-14 21:17</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject"><details><summary>feat: startup warning for card regions using T-transform|OpenScrape recommends I-transform for card faces; T (font scraping) is</summary><div class="body">fragile for variable-color suits and antialiased pips. At startup scan
+c*card*/p*card* regions and show an English messagebox listing any that
+still use T-transform.
+
+Also bundles the latest Coin_7man TM snapshot.
+
+Co-Authored-By: Claude Opus 4.6 &lt;noreply@anthropic.com&gt;</div></details></td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="2144"><span class="ins">+482</span> <span class="del">-1662</span><br><span class="bar bar-ins" style="width:23px"></span> <span class="bar bar-del" style="width:80px"></span></td><td class="net neg" data-sort="-1180">-1180</td><td class="files">Coin_7man_1383x1012.tm<br>gui.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">d06edee</td><td class="date" data-sort="2026-04-14T21:08:02+02:00">2026-04-14 21:08</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject"><details><summary>feat: disable I-regions in learning, warn on card T-regions|- Skip I-transform regions during learning (T-only for now)</summary><div class="body">- Drop I from &quot;jen typ:&quot; filter bar
+- Startup popup warns if any c*card*/p*card* region uses T-transform
+  (OpenScrape recommends I for card faces)
+
+Co-Authored-By: Claude Opus 4.6 &lt;noreply@anthropic.com&gt;</div></details></td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="2173"><span class="ins">+1691</span> <span class="del">-482</span><br><span class="bar bar-ins" style="width:80px"></span> <span class="bar bar-del" style="width:22px"></span></td><td class="net pos" data-sort="1209">+1209</td><td class="files">Coin_7man_1383x1012.tm<br>gui.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">b52efe2</td><td class="date" data-sort="2026-04-14T20:56:40+02:00">2026-04-14 20:56</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject"><details><summary>revert: restore application state to commit 26aeeef|Rolls working tree back to &quot;Add English + Czech ODT documentation&quot;</summary><div class="body">snapshot. Drops later work (tolerance tightening, log cap, clip warnings,
+multi-i$ list, card filters, I-region disable).
+
+Co-Authored-By: Claude Opus 4.6 &lt;noreply@anthropic.com&gt;</div></details></td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="2332"><span class="ins">+528</span> <span class="del">-1804</span><br><span class="bar bar-ins" style="width:23px"></span> <span class="bar bar-del" style="width:80px"></span></td><td class="net neg" data-sort="-1276">-1276</td><td class="files">Coin_7man_1383x1012.tm<br>gui.py<br>learn.py<br>tm.py<br>transform.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">d40b8d0</td><td class="date" data-sort="2026-04-14T20:05:33+02:00">2026-04-14 20:05</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject"><details><summary>feat: allow multiple i$ entries with same name (OpenScrape-compatible)|Tablemap.images switched from dict[str,Image] to list[Image]. add_image</summary><div class="body">appends (overwrite=True permits duplicates); load/save round-trip all
+entries including same-name duplicates.
+
+Co-Authored-By: Claude Opus 4.6 &lt;noreply@anthropic.com&gt;</div></details></td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="2380"><span class="ins">+1514</span> <span class="del">-866</span><br><span class="bar bar-ins" style="width:80px"></span> <span class="bar bar-del" style="width:45px"></span></td><td class="net pos" data-sort="648">+648</td><td class="files">Coin_7man_1383x1012.tm<br>learn.py<br>tm.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">b75c4f6</td><td class="date" data-sort="2026-04-14T19:37:42+02:00">2026-04-14 19:37</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject"><details><summary>feat: clip-warning popup in English with concrete shrink suggestion|The popup now shows the region&#x27;s current L/T/R/B bounds, OpenScrape&#x27;s 24 px</summary><div class="body">height limit, and a concrete recommended new top/bottom that keeps the
+glyph centred within the limit — alongside the I-transform option.
+
+Co-Authored-By: Claude Opus 4.6 &lt;noreply@anthropic.com&gt;</div></details></td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="36"><span class="ins">+28</span> <span class="del">-8</span><br><span class="bar bar-ins" style="width:80px"></span> <span class="bar bar-del" style="width:22px"></span></td><td class="net pos" data-sort="20">+20</td><td class="files">gui.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">007556e</td><td class="date" data-sort="2026-04-14T19:35:11+02:00">2026-04-14 19:35</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject"><details><summary>fix: drop clipped glyphs before emitting — never save a mangled hexmash|If segment_chars had to clip a glyph&#x27;s height to fit OH&#x27;s MAX_SINGLE_CHAR_HEIGHT,</summary><div class="body">the resulting hexmash encodes only the bottom 24 rows and will never match the
+live capture. observe_region now skips those segments outright so no label
+dialog opens and nothing gets stored for them (the clip warning still fires).
+
+Co-Authored-By: Claude Opus 4.6 &lt;noreply@anthropic.com&gt;</div></details></td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="4"><span class="ins">+4</span> <span class="del">-0</span><br><span class="bar bar-ins" style="width:80px"></span></td><td class="net pos" data-sort="4">+4</td><td class="files">learn.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">3d3cd0c</td><td class="date" data-sort="2026-04-14T19:33:20+02:00">2026-04-14 19:33</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject"><details><summary>feat: popup messagebox on first real glyph clip per region|Worker thread enqueues &#x27;warn_clip&#x27; events; main-thread pump shows a</summary><div class="body">messagebox the first time a given region actually forces height clipping,
+in addition to the log warning.
+
+Co-Authored-By: Claude Opus 4.6 &lt;noreply@anthropic.com&gt;</div></details></td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="10"><span class="ins">+10</span> <span class="del">-0</span><br><span class="bar bar-ins" style="width:80px"></span></td><td class="net pos" data-sort="10">+10</td><td class="files">gui.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">bebe8a8</td><td class="date" data-sort="2026-04-14T19:28:56+02:00">2026-04-14 19:28</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject"><details><summary>feat: warn on real glyph clipping, drop noisy startup size warning|The old startup check flagged every T region taller than 24px, which was a</summary><div class="body">false positive when the actual glyph inside was small. Now segment_chars
+records per-segment when it had to clip height (y_end-y_begin &gt; 24), learn
+exposes the count in _last_debug[&#x27;clipped&#x27;], and gui logs a prominent per-
+region warning only on the first cycle that actually triggered clipping.
+
+Co-Authored-By: Claude Opus 4.6 &lt;noreply@anthropic.com&gt;</div></details></td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="42"><span class="ins">+17</span> <span class="del">-25</span><br><span class="bar bar-ins" style="width:54px"></span> <span class="bar bar-del" style="width:80px"></span></td><td class="net neg" data-sort="-8">-8</td><td class="files">gui.py<br>learn.py<br>transform.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">0d5c766</td><td class="date" data-sort="2026-04-14T19:26:44+02:00">2026-04-14 19:26</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject">Revert &quot;feat: prominent modal warning for oversized T regions&quot;|This reverts commit e8ae63646e7434f84f936b5d2d2f72b16536d07b.</td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="25"><span class="ins">+7</span> <span class="del">-18</span><br><span class="bar bar-ins" style="width:31px"></span> <span class="bar bar-del" style="width:80px"></span></td><td class="net neg" data-sort="-11">-11</td><td class="files">gui.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">e8ae636</td><td class="date" data-sort="2026-04-14T19:25:25+02:00">2026-04-14 19:25</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject"><details><summary>feat: prominent modal warning for oversized T regions|Startup now pops a messagebox listing every T region taller than</summary><div class="body">MAX_SINGLE_CHAR_HEIGHT (24 px) in addition to the log banner, so the user
+can&#x27;t miss that those regions need to be converted to I-transform in
+OpenScrape for matching to work.
+
+Co-Authored-By: Claude Opus 4.6 &lt;noreply@anthropic.com&gt;</div></details></td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="25"><span class="ins">+18</span> <span class="del">-7</span><br><span class="bar bar-ins" style="width:80px"></span> <span class="bar bar-del" style="width:31px"></span></td><td class="net pos" data-sort="11">+11</td><td class="files">gui.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">f41d205</td><td class="date" data-sort="2026-04-14T19:23:47+02:00">2026-04-14 19:23</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject">Revert &quot;feat: skip oversized T regions from learning, not just warn&quot;|This reverts commit fed950efb5d1a68528c57f72b1987b08d0a1a146.</td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="16"><span class="ins">+6</span> <span class="del">-10</span><br><span class="bar bar-ins" style="width:48px"></span> <span class="bar bar-del" style="width:80px"></span></td><td class="net neg" data-sort="-4">-4</td><td class="files">gui.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">fed950e</td><td class="date" data-sort="2026-04-14T19:23:04+02:00">2026-04-14 19:23</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject"><details><summary>feat: skip oversized T regions from learning, not just warn|Regions whose height exceeds MAX_SINGLE_CHAR_HEIGHT (24 px) cannot be</summary><div class="body">represented by OH&#x27;s T-font hexmash — learning them produces mangled
+entries (top rows dropped) that OH can never match. Now the app builds
+the oversized set on load and _process_region short-circuits for them,
+so no glyph dialog is ever shown for these regions.
+
+Co-Authored-By: Claude Opus 4.6 &lt;noreply@anthropic.com&gt;</div></details></td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="16"><span class="ins">+10</span> <span class="del">-6</span><br><span class="bar bar-ins" style="width:80px"></span> <span class="bar bar-del" style="width:48px"></span></td><td class="net pos" data-sort="4">+4</td><td class="files">gui.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">decacaa</td><td class="date" data-sort="2026-04-14T19:12:23+02:00">2026-04-14 19:12</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject"><details><summary>feat: cap ohlearn.log at 2MB with rolling tail-keep|When the next line would push the file over 2MB the tail (~1MB) is kept and</summary><div class="body">the prefix discarded, so long-running sessions don&#x27;t grow the log without
+bound.
+
+Co-Authored-By: Claude Opus 4.6 &lt;noreply@anthropic.com&gt;</div></details></td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="23"><span class="ins">+21</span> <span class="del">-2</span><br><span class="bar bar-ins" style="width:80px"></span> <span class="bar bar-del" style="width:7px"></span></td><td class="net pos" data-sort="19">+19</td><td class="files">gui.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">ee97161</td><td class="date" data-sort="2026-04-14T19:03:56+02:00">2026-04-14 19:03</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject">Revert &quot;feat: optional Tesseract OCR auto-suggest for glyph/image labels&quot;|This reverts commit 767c8152a77ba33d94aebfaaac670cafd8f073da.</td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="134"><span class="ins">+1</span> <span class="del">-133</span><br><span class="bar bar-ins" style="width:1px"></span> <span class="bar bar-del" style="width:80px"></span></td><td class="net neg" data-sort="-132">-132</td><td class="files">gui.py<br>ocr.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">767c815</td><td class="date" data-sort="2026-04-14T18:58:47+02:00">2026-04-14 18:58</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject"><details><summary>feat: optional Tesseract OCR auto-suggest for glyph/image labels|New ocr.py wraps pytesseract with graceful fallback (checkbox disabled if</summary><div class="body">Tesseract missing). Label dialog is pre-filled with a suggestion based on
+region hint: rank → 2..A whitelist, suit → hdcs via color + single-char
+OCR, otherwise digits/punct for stacks/pots. Upscales small glyphs before
+OCR for better accuracy. User confirms with Enter or overwrites.
+
+Co-Authored-By: Claude Opus 4.6 &lt;noreply@anthropic.com&gt;</div></details></td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="134"><span class="ins">+133</span> <span class="del">-1</span><br><span class="bar bar-ins" style="width:80px"></span> <span class="bar bar-del" style="width:1px"></span></td><td class="net pos" data-sort="132">+132</td><td class="files">gui.py<br>ocr.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">f2f0896</td><td class="date" data-sort="2026-04-14T18:56:14+02:00">2026-04-14 18:56</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject">tune: lower learn tolerance ratio to 0.55 for safer OH match margin|Co-Authored-By: Claude Opus 4.6 &lt;noreply@anthropic.com&gt;</td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="2"><span class="ins">+1</span> <span class="del">-1</span><br><span class="bar bar-ins" style="width:80px"></span> <span class="bar bar-del" style="width:80px"></span></td><td class="net zero" data-sort="0">0</td><td class="files">learn.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">3dd717a</td><td class="date" data-sort="2026-04-14T18:54:58+02:00">2026-04-14 18:54</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject"><details><summary>feat: learn with 70% of TM fuzzy tolerance so OH matches reliably|If the learner used the full s\$tNtype tolerance, borderline variants were</summary><div class="body">treated as already covered and never stored — OH scraper then failed to
+match them at runtime because it was also operating right at the threshold.
+Tightening the learning cutoff to 0.7x the TM tolerance stores those edge
+variants, leaving OH comfortable margin to match them live.
+
+Co-Authored-By: Claude Opus 4.6 &lt;noreply@anthropic.com&gt;</div></details></td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="16"><span class="ins">+13</span> <span class="del">-3</span><br><span class="bar bar-ins" style="width:80px"></span> <span class="bar bar-del" style="width:18px"></span></td><td class="net pos" data-sort="10">+10</td><td class="files">learn.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">dd321dc</td><td class="date" data-sort="2026-04-14T18:44:28+02:00">2026-04-14 18:44</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject"><details><summary>feat: warn on startup about T regions taller than OH&#x27;s CTransform limit|OpenScrape/OpenHoldem caps per-char height at 24px (MAX_SINGLE_CHAR_HEIGHT);</summary><div class="body">any T region with bottom-top+1 &gt; 24 will lose rows from stored font hexmash
+and will never match live captures. App now lists these regions on load so
+the user can convert them to I-transform.
+
+Co-Authored-By: Claude Opus 4.6 &lt;noreply@anthropic.com&gt;</div></details></td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="24"><span class="ins">+24</span> <span class="del">-0</span><br><span class="bar bar-ins" style="width:80px"></span></td><td class="net pos" data-sort="24">+24</td><td class="files">gui.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">266e0b6</td><td class="date" data-sort="2026-04-14T18:36:44+02:00">2026-04-14 18:36</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject"><details><summary>chore: remove debug PNG dump for cardface saves|Diagnostic confirmed that T-transform bitmap truncation comes from OH&#x27;s</summary><div class="body">MAX_SINGLE_CHAR_HEIGHT cap, not our pipeline. Drop the dump now that the
+analysis is done.
+
+Co-Authored-By: Claude Opus 4.6 &lt;noreply@anthropic.com&gt;</div></details></td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="8"><span class="ins">+0</span> <span class="del">-8</span><br><span class="bar bar-ins" style="width:1px"></span> <span class="bar bar-del" style="width:80px"></span></td><td class="net neg" data-sort="-8">-8</td><td class="files">gui.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">6cbe80b</td><td class="date" data-sort="2026-04-14T18:30:18+02:00">2026-04-14 18:30</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject"><details><summary>debug: dump cardface PNG snapshots to debug_dumps/ on save|User reports stored cardface bitmaps look cut at the top even though sizes</summary><div class="body">match the TM regions. Writing exactly-what-is-saved as PNG lets the user
+inspect pixel-for-pixel whether the capture/crop pipeline or just the OH
+Pixel-Separation panel is responsible.
+
+Co-Authored-By: Claude Opus 4.6 &lt;noreply@anthropic.com&gt;</div></details></td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="8"><span class="ins">+8</span> <span class="del">-0</span><br><span class="bar bar-ins" style="width:80px"></span></td><td class="net pos" data-sort="8">+8</td><td class="files">gui.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">a3c7cdc</td><td class="date" data-sort="2026-04-14T18:13:47+02:00">2026-04-14 18:13</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject"><details><summary>fix: cardface rank/suit also registers font hexmash, stopping reprompt loop|Saving only an i\$ image left the glyph hexmash unregistered, so the next</summary><div class="body">scan cycle proposed the same card again. Now add_glyph is always called so
+the observer stops treating the hexmash as new; the full-region image save
+is additional, keeping the bitmap-matches-preview behavior.
+
+Co-Authored-By: Claude Opus 4.6 &lt;noreply@anthropic.com&gt;</div></details></td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="8"><span class="ins">+5</span> <span class="del">-3</span><br><span class="bar bar-ins" style="width:80px"></span> <span class="bar bar-del" style="width:48px"></span></td><td class="net pos" data-sort="2">+2</td><td class="files">gui.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">8be46d0</td><td class="date" data-sort="2026-04-14T18:09:07+02:00">2026-04-14 18:09</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject"><details><summary>feat: cardface suit/rank labels save as full-region image, not cropped font|When the glyph dialog shows a cardface region and the user picks a suit or</summary><div class="body">rank, the stored bitmap is now the full region (matching the preview),
+saved as an i\$ entry under the chosen label — instead of a segment-cropped
+font glyph that did not correspond visually to the card region.
+
+Co-Authored-By: Claude Opus 4.6 &lt;noreply@anthropic.com&gt;</div></details></td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="16"><span class="ins">+14</span> <span class="del">-2</span><br><span class="bar bar-ins" style="width:80px"></span> <span class="bar bar-del" style="width:11px"></span></td><td class="net pos" data-sort="12">+12</td><td class="files">gui.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">8694d17</td><td class="date" data-sort="2026-04-14T17:58:26+02:00">2026-04-14 17:58</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject"><details><summary>feat: preview the entire TM region in New-glyph dialog, not just the segment|Card rank/suit regions were shown clipped to the segmented character bbox,</summary><div class="body">hiding context. Now the glyph dialog shows the full region crop from the TM
+(same area the scraper sees), so the user can visually confirm the whole
+card before labeling.
+
+Co-Authored-By: Claude Opus 4.6 &lt;noreply@anthropic.com&gt;</div></details></td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="11"><span class="ins">+5</span> <span class="del">-6</span><br><span class="bar bar-ins" style="width:66px"></span> <span class="bar bar-del" style="width:80px"></span></td><td class="net neg" data-sort="-1">-1</td><td class="files">learn.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">e32a1eb</td><td class="date" data-sort="2026-04-14T17:53:19+02:00">2026-04-14 17:53</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject"><details><summary>fix: rank/suit buttons in glyph dialog write label under chosen char|add_glyph gains overwrite=True path so pressing A/K/Q/... or h/d/c/s always</summary><div class="body">stores the font under the pressed label, even if the hexmash was previously
+registered under a different char. GUI logs whether the write happened.
+
+Co-Authored-By: Claude Opus 4.6 &lt;noreply@anthropic.com&gt;</div></details></td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="17"><span class="ins">+11</span> <span class="del">-6</span><br><span class="bar bar-ins" style="width:80px"></span> <span class="bar bar-del" style="width:43px"></span></td><td class="net pos" data-sort="5">+5</td><td class="files">gui.py<br>learn.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">b998bd4</td><td class="date" data-sort="2026-04-14T17:47:15+02:00">2026-04-14 17:47</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject"><details><summary>fix: overwrite (not suffix) image names when suit/rank picker was used|Suits (h/d/c/s) and ranks (2..A) should stay under their plain single-char</summary><div class="body">name across card variants; add_image gains an overwrite flag and gui passes
+it when the picker produced the label.
+
+Co-Authored-By: Claude Opus 4.6 &lt;noreply@anthropic.com&gt;</div></details></td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="26"><span class="ins">+16</span> <span class="del">-10</span><br><span class="bar bar-ins" style="width:80px"></span> <span class="bar bar-del" style="width:50px"></span></td><td class="net pos" data-sort="6">+6</td><td class="files">gui.py<br>learn.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">061aad0</td><td class="date" data-sort="2026-04-14T17:40:16+02:00">2026-04-14 17:40</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject"><details><summary>fix: auto-suffix duplicate image names so suit/rank picks always save|add_image returned False when the target name already existed, so pressing</summary><div class="body">h/d/c/s (or 2..A) for a second card silently dropped the bitmap. Now the
+function auto-suffixes _2/_3/... on collision and returns the actual name
+used; GUI logs the stored name.
+
+Co-Authored-By: Claude Opus 4.6 &lt;noreply@anthropic.com&gt;</div></details></td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="563"><span class="ins">+544</span> <span class="del">-19</span><br><span class="bar bar-ins" style="width:80px"></span> <span class="bar bar-del" style="width:2px"></span></td><td class="net pos" data-sort="525">+525</td><td class="files">Coin_7man_1383x1012.tm<br>gui.py<br>learn.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">26aeeef</td><td class="date" data-sort="2026-04-14T17:16:45+02:00">2026-04-14 17:16</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject"><details><summary>Add English + Czech ODT documentation|README_en.odt and README_cz.odt cover setup, workflow, UI controls,</summary><div class="body">fuzzy-match parity with OpenScrape, troubleshooting, and per-file
+overview. _make_docs.py regenerates both from a single source.</div></details></td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="212"><span class="ins">+212</span> <span class="del">-0</span><br><span class="bar bar-ins" style="width:80px"></span></td><td class="net pos" data-sort="212">+212</td><td class="files">README_cz.odt<br>README_en.odt<br>_make_docs.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">a59b557</td><td class="date" data-sort="2026-04-14T17:12:20+02:00">2026-04-14 17:12</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject"><details><summary>Add auto-tune cube toggle, disabled by default|User-controlled checkbox to prevent the learner from modifying</summary><div class="body">region color/radius. Off by default so TM stays untouched unless
+explicitly opted in.</div></details></td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="5"><span class="ins">+4</span> <span class="del">-1</span><br><span class="bar bar-ins" style="width:80px"></span> <span class="bar bar-del" style="width:20px"></span></td><td class="net pos" data-sort="3">+3</td><td class="files">gui.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">6f9d388</td><td class="date" data-sort="2026-04-14T17:09:31+02:00">2026-04-14 17:09</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject"><details><summary>Align fuzzy font match with OH scraper (no width slack)|OH&#x27;s GetBestHammingDistance compares font as prefix of segment and</summary><div class="body">requires font.x_count &lt;= seg_len. Previous width_slack=1 accepted
+variants OH would miss at scrape time, so those glyphs weren&#x27;t
+offered for learning -&gt; misscrapes. Learning now mirrors OH exactly.</div></details></td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="15"><span class="ins">+7</span> <span class="del">-8</span><br><span class="bar bar-ins" style="width:70px"></span> <span class="bar bar-del" style="width:80px"></span></td><td class="net neg" data-sort="-1">-1</td><td class="files">learn.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">f9963eb</td><td class="date" data-sort="2026-04-14T17:00:13+02:00">2026-04-14 17:00</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject"><details><summary>Region filter, per-transform selection, broken-cube detection, dialog UX|- Region listbox with vse/nic/jen neuc/per-transform (T0/T2/I...) filters</summary><div class="body">- Markers ●/○/· for trained / untrained / non-learnable regions
+- Autotune: reset cube when mask density &gt;90% (stored cube matched entire region)
+- Cap cube radius expansion at 150, reject whole-region blob segments
+- Split touching digits at min-density column (valley) when run &gt; MAX_SINGLE_CHAR_WIDTH
+- Fuzzy font match with +1 col width slack for antialiasing variance
+- Pending-set prevents duplicate dialogs queued across cycles
+- Dialog: topmost + auto-focus entry, Save TM button + Ctrl+S works in popup
+- WM_DELETE_WINDOW on dialog = Skip, on main = stop worker and close children
+- File log to ohlearn.log for offline diagnosis
+- N_FONT_GROUPS 6 -&gt; 10 (support T6+ regions like mtt_average_stack)
+- segment_chars guards against 1x1 regions and width-clamps window</div></details></td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="493"><span class="ins">+453</span> <span class="del">-40</span><br><span class="bar bar-ins" style="width:80px"></span> <span class="bar bar-del" style="width:7px"></span></td><td class="net pos" data-sort="413">+413</td><td class="files">.gitignore<br>Coin_7man_1383x1012.tm<br>gui.py<br>learn.py<br>tm.py<br>transform.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">467b83f</td><td class="date" data-sort="2026-04-14T15:20:01+02:00">2026-04-14 15:20</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject">Skip already-known glyphs/images using TM tolerance + auto-crop client area|</td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="659"><span class="ins">+643</span> <span class="del">-16</span><br><span class="bar bar-ins" style="width:80px"></span> <span class="bar bar-del" style="width:1px"></span></td><td class="net pos" data-sort="627">+627</td><td class="files">Coin_7man_1383x1012.tm<br>gui.py<br>learn.py</td></tr>
+<tr data-cat="other" data-branches="master"><td class="hash">111ec55</td><td class="date" data-sort="2026-04-14T14:45:37+02:00">2026-04-14 14:45</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject">Fix PrintWindow flag, add rescaled Coin_7man TM (1383x1012)|</td><td><span class="badge" style="background:#f5f5f5;color:#424242">Other</span></td><td></td><td data-sort="219"><span class="ins">+218</span> <span class="del">-1</span><br><span class="bar bar-ins" style="width:80px"></span> <span class="bar bar-del" style="width:1px"></span></td><td class="net pos" data-sort="217">+217</td><td class="files">Coin_7man_1383x1012.tm<br>capture.py</td></tr>
+<tr data-cat="infra" data-branches="master"><td class="hash">a610258</td><td class="date" data-sort="2026-04-14T14:34:47+02:00">2026-04-14 14:34</td><td class="version"></td><td><span class="branch" style="background:#1f6feb">master</span></td><td class="subject">Initial commit: ohlearn TM bitmap generator|</td><td><span class="badge" style="background:#eceff1;color:#546e7a">Infra</span></td><td></td><td data-sort="1178"><span class="ins">+1178</span> <span class="del">-0</span><br><span class="bar bar-ins" style="width:80px"></span></td><td class="net pos" data-sort="1178">+1178</td><td class="files">.gitignore<br>__init__.py<br>__main__.py<br>capture.py<br>gui.py<br>learn.py<br>requirements.txt<br>run.bat<br>tm.py<br>transform.py</td></tr>
+
+</tbody>
+</table>
+</div>
+
+<footer>generuj_historii.py &mdash; spust <code>python generuj_historii.py</code> pro aktualizaci</footer>
+
+<script>
+// Search
+const search = document.getElementById('search');
+const rows = document.querySelectorAll('#hist tbody tr');
+function applyFilters() {
+  const q = search.value.toLowerCase();
+  const cat = document.querySelector('#filters .filter-btn.active').dataset.cat;
+  const br = document.querySelector('#branch_filters .filter-btn.active').dataset.branch;
+  rows.forEach(r => {
+    const text = r.textContent.toLowerCase();
+    const rc = r.dataset.cat;
+    const rb = (r.dataset.branches || '').split(',');
+    const matchQ = !q || text.includes(q);
+    const matchC = cat === 'all' || rc === cat;
+    const matchB = br === 'all' || rb.indexOf(br) !== -1;
+    r.classList.toggle('hidden', !(matchQ && matchC && matchB));
+  });
+}
+search.addEventListener('input', applyFilters);
+
+// Category filter
+document.getElementById('filters').addEventListener('click', e => {
+  if (!e.target.classList.contains('filter-btn')) return;
+  document.querySelectorAll('#filters .filter-btn').forEach(b => b.classList.remove('active'));
+  e.target.classList.add('active');
+  applyFilters();
+});
+// Branch filter
+document.getElementById('branch_filters').addEventListener('click', e => {
+  if (!e.target.classList.contains('filter-btn')) return;
+  document.querySelectorAll('#branch_filters .filter-btn').forEach(b => b.classList.remove('active'));
+  e.target.classList.add('active');
+  applyFilters();
+});
+
+// Sort
+document.querySelectorAll('#hist thead th').forEach(th => {
+  th.addEventListener('click', () => {
+    const col = +th.dataset.col;
+    const tbody = document.querySelector('#hist tbody');
+    const arr = Array.from(tbody.rows);
+    const dir = th.classList.contains('asc') ? -1 : 1;
+    document.querySelectorAll('#hist thead th').forEach(t => t.classList.remove('asc','desc','sorted'));
+    th.classList.add(dir === 1 ? 'asc' : 'desc', 'sorted');
+    arr.sort((a, b) => {
+      let va = a.cells[col].dataset.sort || a.cells[col].textContent;
+      let vb = b.cells[col].dataset.sort || b.cells[col].textContent;
+      if (!isNaN(va) && !isNaN(vb)) return (va - vb) * dir;
+      return va.localeCompare(vb, 'cs') * dir;
+    });
+    arr.forEach(r => tbody.appendChild(r));
+  });
+});
+</script>
+</body>
+</html>
