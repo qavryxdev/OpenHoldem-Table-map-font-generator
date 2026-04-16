@@ -10,5 +10,6 @@ ohlearn.log
 build/
 dist/
 *.spec
+!ohlearn.spec
 debug_dumps/
 frame_diag.png
