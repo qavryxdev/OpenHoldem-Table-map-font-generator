@@ -271,7 +271,6 @@ class App(tk.Tk):
             marker, _ = self._region_status(r)
             self.region_lb.insert("end", f"{marker} {r.transform:<3} {name}")
             self._region_names.append(name)
-            self.region_lb.selection_set("end")  # default all selected
 
     def _refresh_region_markers(self):
         """Update ●/○ without losing selection."""
