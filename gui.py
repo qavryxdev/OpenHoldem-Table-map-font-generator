@@ -17,6 +17,7 @@ from PIL import ImageTk
 
 import capture
 import learn
+import ocr_suggest
 import tm as tmmod
 
 
@@ -37,7 +38,8 @@ class LabelDialog(tk.Toplevel):
 
     def __init__(self, parent: tk.Misc, title: str, preview_rgba: np.ndarray,
                  context_text: str, default: str = "", scale: int = SCALE,
-                 save_tm_cb=None):
+                 save_tm_cb=None,
+                 suggestions: list[tuple[str, float]] | None = None):
         super().__init__(parent)
         self.title(title)
         self.resizable(False, False)
@@ -54,6 +56,18 @@ class LabelDialog(tk.Toplevel):
         self.var = tk.StringVar(value=default)
         self.ent = tk.Entry(frm, textvariable=self.var)
         self.ent.pack(side="left", fill="x", expand=True)
+
+        if suggestions:
+            sug_frm = tk.Frame(self)
+            sug_frm.pack(padx=8, pady=(0, 4), fill="x")
+            tk.Label(sug_frm, text="OCR:", font=("Consolas", 9)).pack(side="left")
+            for ch, conf in suggestions:
+                tk.Button(
+                    sug_frm,
+                    text=f"{ch} ({conf:.0f}%)",
+                    font=("Consolas", 10, "bold"),
+                    command=lambda c=ch: (self.var.set(c), self.ent.focus_set()),
+                ).pack(side="left", padx=2)
         self.ent.focus_set()
         self.ent.bind("<Return>", lambda _e: self._ok())
         self.ent.bind("<Escape>", lambda _e: self._skip())
@@ -116,6 +130,10 @@ class App(tk.Tk):
 
         self._build_ui()
         self._refresh_windows()
+        if ocr_suggest.is_available():
+            self.log("[OCR] Tesseract ready - glyph suggestions enabled")
+        else:
+            self.log(f"[OCR] disabled: {ocr_suggest.unavailable_reason()}")
         self.after(100, self._pump_messages)
         self.bind_all("<Control-s>", lambda _e: self._save())
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -460,10 +478,14 @@ class App(tk.Tk):
             return
         if key in self.discarded_glyphs:
             return
+        suggestions = ocr_suggest.suggest_glyph(g.mask_preview)
+        default = suggestions[0][0] if suggestions else ""
         ctx = (f"region: {g.region}    font group: t{g.font_group}\n"
                f"hexmash: {g.hexmash}\n"
                f"width  : {len(g.xvals)} cols")
-        dlg = LabelDialog(self, "New glyph", g.pixels, ctx, save_tm_cb=self._save)
+        dlg = LabelDialog(self, "New glyph", g.pixels, ctx,
+                          default=default, save_tm_cb=self._save,
+                          suggestions=suggestions)
         if dlg.result == "__DISCARD__":
             self.discarded_glyphs.add((g.font_group, g.hexmash))
             self.log(f"[-] discarded glyph t{g.font_group}$ hexmash={g.hexmash}")
