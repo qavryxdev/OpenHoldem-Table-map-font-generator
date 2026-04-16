@@ -9,6 +9,7 @@ import queue
 import threading
 import time
 import tkinter as tk
+from tkinter import font as tkfont
 from tkinter import messagebox, simpledialog, ttk
 
 import numpy as np
@@ -48,7 +49,7 @@ class LabelDialog(tk.Toplevel):
         self._photo = _pil_from_rgba(preview_rgba, scale)
         tk.Label(self, image=self._photo, borderwidth=2, relief="groove").pack(padx=8, pady=8)
         tk.Label(self, text=context_text, justify="left",
-                 font=("Consolas", 9)).pack(padx=8, pady=4)
+                 font=("Consolas", UI_MONO_SIZE)).pack(padx=8, pady=4)
 
         frm = tk.Frame(self)
         frm.pack(padx=8, pady=4, fill="x")
@@ -60,12 +61,12 @@ class LabelDialog(tk.Toplevel):
         if suggestions:
             sug_frm = tk.Frame(self)
             sug_frm.pack(padx=8, pady=(0, 4), fill="x")
-            tk.Label(sug_frm, text="OCR:", font=("Consolas", 9)).pack(side="left")
+            tk.Label(sug_frm, text="OCR:", font=("Consolas", UI_MONO_SIZE)).pack(side="left")
             for ch, conf in suggestions:
                 tk.Button(
                     sug_frm,
                     text=f"{ch} ({conf:.0f}%)",
-                    font=("Consolas", 10, "bold"),
+                    font=("Consolas", UI_MONO_BOLD_SIZE, "bold"),
                     command=lambda c=ch: (self.var.set(c), self.ent.focus_set()),
                 ).pack(side="left", padx=2)
         self.ent.focus_set()
@@ -112,11 +113,17 @@ class LabelDialog(tk.Toplevel):
             self._save_tm_cb()
 
 
+UI_FONT_SIZE = 12        # base UI font (buttons, labels, entries, menus)
+UI_MONO_SIZE = 12        # Consolas-based labels / logs / region list
+UI_MONO_BOLD_SIZE = 13   # OCR suggestion buttons (bold)
+
+
 class App(tk.Tk):
     def __init__(self, table: tmmod.Tablemap):
         super().__init__()
         self.title(f"OHLearn - {table.path}")
-        self.geometry("900x620")
+        self.geometry("1200x820")
+        self._bump_tk_fonts(UI_FONT_SIZE)
         self.table = table
         self.hwnd: int | None = None
         self.running = False
@@ -137,6 +144,25 @@ class App(tk.Tk):
         self.after(100, self._pump_messages)
         self.bind_all("<Control-s>", lambda _e: self._save())
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _bump_tk_fonts(self, size: int) -> None:
+        """Zvetsi vsechny pojmenovane Tk fonty — pokryje vychozi widgety
+        (Button, Label, Entry, Menu, Treeview, ...) ktere pouzivaji
+        TkDefaultFont / TkTextFont / TkMenuFont atd."""
+        for name in ("TkDefaultFont", "TkTextFont", "TkMenuFont",
+                     "TkHeadingFont", "TkCaptionFont", "TkTooltipFont",
+                     "TkFixedFont", "TkIconFont", "TkSmallCaptionFont"):
+            try:
+                tkfont.nametofont(name).configure(size=size)
+            except tk.TclError:
+                pass
+        style = ttk.Style(self)
+        for s in ("TButton", "TLabel", "TEntry", "TCombobox",
+                  "TCheckbutton", "TRadiobutton", "TLabelframe.Label"):
+            try:
+                style.configure(s, font=("Segoe UI", size))
+            except tk.TclError:
+                pass
 
     def _on_close(self):
         self.running = False
@@ -179,7 +205,7 @@ class App(tk.Tk):
 
         stats = tk.LabelFrame(self, text="Tablemap stats")
         stats.pack(fill="x", padx=6, pady=6)
-        self.stats_lbl = tk.Label(stats, justify="left", font=("Consolas", 9))
+        self.stats_lbl = tk.Label(stats, justify="left", font=("Consolas", UI_MONO_SIZE))
         self.stats_lbl.pack(anchor="w")
         self._update_stats()
 
@@ -208,14 +234,14 @@ class App(tk.Tk):
                       command=lambda t=tr: self._select_by_transform(t)
                       ).pack(side="left", padx=1)
         self.region_lb = tk.Listbox(regfrm, selectmode="multiple",
-                                     width=36, height=20, font=("Consolas", 9),
+                                     width=36, height=20, font=("Consolas", UI_MONO_SIZE),
                                      activestyle="none", exportselection=False)
         self.region_lb.pack(fill="y", expand=True)
         self._populate_regions()
 
         log = tk.LabelFrame(middle, text="Log")
         log.pack(side="left", fill="both", expand=True, padx=(6, 0))
-        self.log_txt = tk.Text(log, height=20, font=("Consolas", 9))
+        self.log_txt = tk.Text(log, height=20, font=("Consolas", UI_MONO_SIZE))
         self.log_txt.pack(fill="both", expand=True)
 
     # ---------- region list ----------
