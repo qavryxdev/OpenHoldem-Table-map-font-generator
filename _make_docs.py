@@ -116,7 +116,8 @@ EN = [
     ("li", "Save TM — writes the tablemap atomically (creates .bak backup). Also bound to Ctrl+S, also works inside label dialogs."),
     ("li", "Prune duplicates — finds pixel-identical images and offers to remove the second of each pair."),
     ("li", "Auto-tune cube (RGB/radius) — when on, automatically detects text color via Otsu and expands the region's color cube to cover new text-color variants (e.g. active vs inactive player). Off by default — the TM stays untouched."),
-    ("li", "Region list — shows every region with status markers (● trained, ○ empty, · non-learnable). Filters: vše (all) / nic (none) / jen neuč. (only untrained) / per-transform (T0, T2, I …). Only checked regions are scanned."),
+    ("li", "Learn-tol cap — entry box (default 0.20) that caps the learner's effective fuzzy tolerance independent of s$tNtype. See section 5. Set to 0 to disable the cap and use the raw TM value."),
+    ("li", "Region list — shows every region with status markers (● trained, ○ empty, · non-learnable). Filters: vše (all) / nic (none) / jen neuč. (only untrained) / per-transform (T0, T2, I …). Only checked regions are scanned. The list starts with nothing selected — pick regions explicitly via the filter buttons or click-to-select."),
 
     ("h2", "4. Label dialog"),
     ("p", "For each new glyph or image a modal appears with the scaled preview, the region/font-group context, and the nearest existing matches. Buttons:"),
@@ -126,8 +127,10 @@ EN = [
     ("li", "💾 Save TM / Ctrl+S — write the current TM without closing the dialog."),
     ("p", "The dialog is non-modal (main window close still works), always-on-top, and auto-focuses the entry field so you can type immediately."),
 
-    ("h2", "5. Matching policy — parity with OpenScrape"),
+    ("h2", "5. Matching policy — parity with OpenScrape + learn-tolerance cap"),
     ("p", "The fuzzy font matcher is byte-identical to OH GetBestHammingDistance: font.x_count must be ≤ segment length, compared as a prefix, weighted_hd = sum(hamming) / sum(lit_pixels), and a match requires whd < s$tNtype tolerance. If the learner accepts a glyph as already-known, OH's scraper will accept it too. When the learner offers a new glyph, OH cannot currently scrape it — learn it to remove the misscrape."),
+    ("p", "Learn-tolerance cap: there are two tolerances — the one OpenHoldem uses at scrape time (the raw s$tNtype from the TM, e.g. 0.35) and the one ohlearn uses to decide 'this glyph is already covered, don't prompt for it' (capped at 0.20 by default). When the TM is lenient, the cap keeps the learner stricter so additional bitmap variants are captured. Scrapers configured to run stricter than the TM — for example OpenScrape at 0.20 with a 0.35 TM — then match reliably because every visual variation within 0.20 of some stored glyph has been saved."),
+    ("p", "Effective learning threshold = min(s$tNtype, LEARN_FUZZY_CAP). Cap = 0 disables the cap (falls back to raw TM behaviour). The GUI log prefixes the effective value in brackets when it diverges, e.g. tol=0.20(TM=0.35)."),
 
     ("h2", "6. Tablemap format notes"),
     ("li", "Byte-faithful writer: sort order, spacing and line endings reproduce CTablemap::SaveTablemap exactly."),
@@ -171,7 +174,8 @@ CZ = [
     ("li", "Save TM — atomický zápis tablemapy (vytvoří .bak zálohu). Klávesa Ctrl+S funguje i uvnitř learning dialogu."),
     ("li", "Prune duplicates — najde identické obrázky a nabídne smazání duplicitního."),
     ("li", "Auto-tune cube (RGB/radius) — když zapnuto, automaticky detekuje barvu textu přes Otsu a rozšíří cube regionu aby pokryl novou variantu barvy (např. aktivní vs neaktivní hráč). Defaultně vypnuto, TM zůstane nedotčené."),
-    ("li", "Seznam regionů — zobrazuje každý region se statusem (● naučeno, ○ prázdné, · nelze učit). Filtry: vše / nic / jen neuč. / podle typu transformu (T0, T2, I …). Učí se pouze zaškrtnuté."),
+    ("li", "Learn-tol cap — pole (default 0.20), které capne efektivní fuzzy toleranci learneru nezávisle na s$tNtype. Viz sekce 5. Nastav na 0 pro vypnutí capu (učí se na raw TM hodnotě)."),
+    ("li", "Seznam regionů — zobrazuje každý region se statusem (● naučeno, ○ prázdné, · nelze učit). Filtry: vše / nic / jen neuč. / podle typu transformu (T0, T2, I …). Učí se pouze zaškrtnuté. Seznam startuje s ničím vybraným — vyber regiony explicitně přes filtrační tlačítka nebo klikáním."),
 
     ("h2", "4. Dialog pro pojmenování"),
     ("p", "Pro každý nový glyph / obrázek se objeví okno s náhledem, kontextem (region, font-group) a seznamem nejbližších existujících match. Tlačítka:"),
@@ -181,8 +185,10 @@ CZ = [
     ("li", "💾 Save TM / Ctrl+S — uloží TM bez zavření dialogu."),
     ("p", "Dialog je nemodální (hlavní X funguje), vždy na popředí a automaticky zaměří Entry — můžeš rovnou psát."),
 
-    ("h2", "5. Párování — kompatibilita s OpenScrape"),
+    ("h2", "5. Párování — kompatibilita s OpenScrape + learn-tolerance cap"),
     ("p", "Fuzzy font matcher je bajt-identický s OH GetBestHammingDistance: font.x_count ≤ délka segmentu, porovnán jako prefix, weighted_hd = sum(hamming) / sum(lit_pixels), match vyžaduje whd < s$tNtype tolerance. Když tady matcher uzná glyph za již naučený, OH ho při scrapování taky uzná. Když tady nabídne nový — OH ho zatím nedokáže nascrapovat (= misscrape). Nauč ho a misscrape zmizí."),
+    ("p", "Learn-tolerance cap: existují dvě tolerance — jedna co OpenHoldem používá při scrapování (raw s$tNtype z TM, např. 0.35) a druhá co ohlearn používá pro rozhodnutí 'tento glyph už je pokrytý, neptej se' (cap 0.20 defaultně). Když je TM benevolentní, cap drží learner striktnější a nasbírá další bitmap varianty. Scrapery konfigurované striktněji než TM — například OpenScrape na 0.20 s TM 0.35 — pak matchují spolehlivě, protože každá vizuální variace ve vzdálenosti 0.20 od nějakého uloženého glyphu už byla uložena."),
+    ("p", "Efektivní learning práh = min(s$tNtype, LEARN_FUZZY_CAP). Cap = 0 ho vypne (chová se jako raw TM). Log v GUI ukazuje efektivní hodnotu v závorce, když se liší od TM, např. tol=0.20(TM=0.35)."),
 
     ("h2", "6. Formát tablemapy"),
     ("li", "Bajt-přesný writer: řazení, mezery a konce řádků odpovídají CTablemap::SaveTablemap."),
