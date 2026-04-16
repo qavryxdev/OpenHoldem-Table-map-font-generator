@@ -478,7 +478,15 @@ class App(tk.Tk):
             return
         if key in self.discarded_glyphs:
             return
-        suggestions = ocr_suggest.suggest_glyph(g.mask_preview)
+        ocr_sugs = ocr_suggest.suggest_glyph(g.mask_preview)
+        nn_sugs = learn.suggest_from_table(
+            g.xvals, self.table.fonts[g.font_group]
+        )
+        merged: dict[str, float] = {}
+        for ch, c in nn_sugs + ocr_sugs:
+            if ch not in merged or c > merged[ch]:
+                merged[ch] = c
+        suggestions = sorted(merged.items(), key=lambda t: t[1], reverse=True)[:3]
         default = suggestions[0][0] if suggestions else ""
         ctx = (f"region: {g.region}    font group: t{g.font_group}\n"
                f"hexmash: {g.hexmash}\n"

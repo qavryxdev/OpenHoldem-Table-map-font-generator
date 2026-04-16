@@ -84,6 +84,35 @@ def _fuzzy_font_match(seg_xs: list[int], fonts: dict[str, tmmod.Font],
     return best_ch
 
 
+def suggest_from_table(xvals: list[int], fonts: dict[str, tmmod.Font],
+                       top_n: int = 3, min_conf: float = 30.0
+                       ) -> list[tuple[str, float]]:
+    """k-NN over learned glyphs by weighted Hamming distance. Returns
+    [(char, confidence_pct)] sorted desc; empty if no candidate beats min_conf.
+    Same scoring as OH GetBestHammingDistance but exposed as ranked list."""
+    if not xvals or not fonts:
+        return []
+    seg_len = len(xvals)
+    best_per_char: dict[str, float] = {}
+    for f in fonts.values():
+        if f.x_count > seg_len or f.x_count == 0:
+            continue
+        tot = 0
+        lit = 0
+        for j in range(f.x_count):
+            tot += bin(f.x[j] ^ xvals[j]).count("1")
+            lit += bin(f.x[j]).count("1")
+        if lit == 0:
+            continue
+        whd = tot / lit
+        conf = max(0.0, (1.0 - whd) * 100.0)
+        if conf < min_conf:
+            continue
+        if f.ch not in best_per_char or conf > best_per_char[f.ch]:
+            best_per_char[f.ch] = conf
+    return sorted(best_per_char.items(), key=lambda t: t[1], reverse=True)[:top_n]
+
+
 def _image_matches(obs: np.ndarray, ref: np.ndarray, region_radius: int) -> bool:
     """Same idea as ITypeTransform: count pixels that differ (using region.radius
     as RGB-distance threshold) and accept if failed_pixels < (1 - 65%) of total."""
