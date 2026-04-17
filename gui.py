@@ -55,14 +55,14 @@ class LabelDialog(tk.Toplevel):
         if warning:
             wfrm = tk.Frame(self, bg="#fff0f0", relief="ridge", borderwidth=1)
             wfrm.pack(padx=8, pady=(0, 4), fill="x")
-            tk.Label(wfrm, text="!! RIZIKO MISS-SCRAPU !!",
+            tk.Label(wfrm, text="!! MISS-SCRAPE RISK !!",
                      font=("Consolas", UI_MONO_BOLD_SIZE, "bold"),
                      fg="#cc0000", bg="#fff0f0").pack(anchor="w", padx=4)
             tk.Label(wfrm, text=warning, justify="left",
                      font=("Consolas", UI_MONO_SIZE),
                      fg="#cc0000", bg="#fff0f0", wraplength=450).pack(
                          anchor="w", padx=4, pady=(0, 4))
-            tk.Label(wfrm, text="Doporuceni: Skip nebo Discard",
+            tk.Label(wfrm, text="Recommended: Skip or Discard",
                      font=("Consolas", UI_MONO_SIZE, "bold"),
                      fg="#884400", bg="#fff0f0").pack(anchor="w", padx=4, pady=(0, 4))
 
@@ -139,7 +139,7 @@ class ValidationDialog(tk.Toplevel):
     def __init__(self, parent: tk.Misc, sg: learn.SuspiciousGlyph,
                  save_tm_cb=None):
         super().__init__(parent)
-        self.title("Podezrela bitmapa separatoru")
+        self.title("Suspicious separator bitmap")
         self.resizable(False, False)
         self.result: str | None = None  # "delete" / "keep" / None(skip)
         self._save_tm_cb = save_tm_cb
@@ -149,22 +149,22 @@ class ValidationDialog(tk.Toplevel):
                  relief="groove").pack(padx=8, pady=8)
 
         ctx = (f"Region: {sg.region}    font group: t{sg.font_group}\n"
-               f"Bitmapa matchla jako: '{sg.matched_char}'\n"
+               f"Bitmap matched as: '{sg.matched_char}'\n"
                f"Hexmash: {sg.hexmash}\n"
                f"\n"
-               f"Naskrapovany text:  {sg.scraped_text}\n"
-               f"Problem: {sg.reason}")
+               f"Scraped text:  {sg.scraped_text}\n"
+               f"Issue: {sg.reason}")
         tk.Label(self, text=ctx, justify="left",
                  font=("Consolas", UI_MONO_SIZE),
                  fg="#cc0000").pack(padx=8, pady=4)
 
         btns = tk.Frame(self)
         btns.pack(padx=8, pady=8)
-        tk.Button(btns, text="Smazat bitmapu", fg="red",
+        tk.Button(btns, text="Delete bitmap", fg="red",
                   command=self._delete).pack(side="left", padx=4)
-        tk.Button(btns, text="Ponechat",
+        tk.Button(btns, text="Keep",
                   command=self._keep).pack(side="left", padx=4)
-        tk.Button(btns, text="Preskocit (Esc)",
+        tk.Button(btns, text="Skip (Esc)",
                   command=self._skip).pack(side="left", padx=4)
         if save_tm_cb is not None:
             tk.Button(btns, text="Save TM (Ctrl+S)",
@@ -293,20 +293,20 @@ class App(tk.Tk):
         middle = tk.Frame(self)
         middle.pack(fill="both", expand=True, padx=6, pady=6)
 
-        regfrm = tk.LabelFrame(middle, text="Regions (✓ = zaškrtnuto = učit)")
+        regfrm = tk.LabelFrame(middle, text="Regions (checked = learn)")
         regfrm.pack(side="left", fill="y")
         btnbar = tk.Frame(regfrm)
         btnbar.pack(fill="x")
-        tk.Button(btnbar, text="vše", width=5,
+        tk.Button(btnbar, text="all", width=5,
                   command=lambda: self._set_all_regions(True)).pack(side="left")
-        tk.Button(btnbar, text="nic", width=5,
+        tk.Button(btnbar, text="none", width=5,
                   command=lambda: self._set_all_regions(False)).pack(side="left")
-        tk.Button(btnbar, text="jen neuč.", width=9,
+        tk.Button(btnbar, text="untrained", width=9,
                   command=self._select_untrained).pack(side="left")
         # dynamicke tlacitka per transform (T0..Tx, I)
         typebar = tk.Frame(regfrm)
         typebar.pack(fill="x")
-        tk.Label(typebar, text="jen typ:").pack(side="left")
+        tk.Label(typebar, text="type:").pack(side="left")
         used = sorted({r.transform for r in self.table.regions.values()
                        if r.transform and r.transform[0] in ("T", "I")})
         for tr in used:
@@ -457,7 +457,7 @@ class App(tk.Tk):
             return
         idx = self.window_cb.current()
         if idx < 0:
-            messagebox.showwarning("ohlearn", "Vyber poker okno.")
+            messagebox.showwarning("ohlearn", "Select a poker window first.")
             return
         self.hwnd = self._wins_list[idx][0]
         self.running = True
@@ -501,7 +501,7 @@ class App(tk.Tk):
                             self._logged_crop = True
                     else:
                         self.msg_q.put(("log",
-                            f"skip: client {W}x{H} mensi nez target {tw}x{th}"))
+                            f"skip: client {W}x{H} smaller than target {tw}x{th}"))
                         time.sleep(interval)
                         continue
 
@@ -524,7 +524,7 @@ class App(tk.Tk):
                         f"ERROR in region {r.name}: {e}\n{traceback.format_exc()}"))
                     continue
             self.msg_q.put(("log",
-                f"cycle: {n_t} T regionu, {n_t_dialogs} new glyphs to label"))
+                f"cycle: {n_t} T regions, {n_t_dialogs} new glyphs to label"))
 
             now = time.time()
             if now - last_validate >= self.VALIDATE_INTERVAL:
@@ -606,9 +606,9 @@ class App(tk.Tk):
                 n_found += 1
         if n_found:
             self.msg_q.put(("log",
-                f"[V] validace: nalezeno {n_found} podezrelych separatoru"))
+                f"[V] validation: found {n_found} suspicious separators"))
         else:
-            self.msg_q.put(("log", "[V] validace: OK"))
+            self.msg_q.put(("log", "[V] validation: OK"))
 
     # ---------- message pump (main thread) ----------
 
@@ -720,13 +720,13 @@ class App(tk.Tk):
         dlg = ValidationDialog(self, sg, save_tm_cb=self._save)
         if dlg.result == "delete":
             learn.remove_font(self.table, sg.font_group, sg.hexmash)
-            self.log(f"[V] SMAZANO t{sg.font_group}$'{sg.matched_char}' "
-                     f"hexmash={sg.hexmash}  (text byl: {sg.scraped_text})")
+            self.log(f"[V] DELETED t{sg.font_group}$'{sg.matched_char}' "
+                     f"hexmash={sg.hexmash}  (text was: {sg.scraped_text})")
             self._update_stats()
             self._refresh_region_markers()
         elif dlg.result == "keep":
             self.dismissed_suspicious.add(key)
-            self.log(f"[V] ponechano t{sg.font_group}$'{sg.matched_char}' "
+            self.log(f"[V] kept t{sg.font_group}$'{sg.matched_char}' "
                      f"hexmash={sg.hexmash}")
         else:
             self.dismissed_suspicious.add(key)
@@ -775,7 +775,7 @@ class App(tk.Tk):
                     n_found += 1
             if n_found:
                 self.msg_q.put(("log",
-                    f"[V] post-learn validace: {n_found} podezrelych separatoru"))
+                    f"[V] post-learn validation: {n_found} suspicious separators"))
 
         threading.Thread(target=_bg, daemon=True).start()
 
@@ -806,12 +806,12 @@ class App(tk.Tk):
     def _prune(self):
         dups = learn.find_duplicate_images(self.table, tol_px=0)
         if not dups:
-            messagebox.showinfo("ohlearn", "žádné duplikátní obrázky.")
+            messagebox.showinfo("ohlearn", "No duplicate images found.")
             return
         msg = "\n".join(f"{a}  ≡  {b}  (diff={d})" for a, b, d in dups[:20])
         if messagebox.askyesno("ohlearn",
-                               f"Nalezeno {len(dups)} duplicit:\n\n{msg}\n\n"
-                               "Smazat druhý z každé dvojice?"):
+                               f"Found {len(dups)} duplicates:\n\n{msg}\n\n"
+                               "Delete the second from each pair?"):
             seen = set()
             for a, b, _ in dups:
                 if b in seen or a in seen:
@@ -819,4 +819,4 @@ class App(tk.Tk):
                 learn.remove_image(self.table, b)
                 seen.add(b)
             self._update_stats()
-            self.log(f"[P] odstraněno {len(seen)} obrázků")
+            self.log(f"[P] removed {len(seen)} images")

@@ -320,7 +320,7 @@ def pre_validate_glyph(xvals: list[int], label: str,
         # separator by nemel byt sirsi nez TINY_MAX_WIDTH
         if seg_len > TINY_MAX_WIDTH + 1:
             warnings.append(
-                f"neobvykle siroky pro '{label}' ({seg_len} cols)")
+                f"unusually wide for '{label}' ({seg_len} cols)")
         # krizova podobnost: sep vs cislice
         for f in fonts.values():
             if not f.ch.isdigit() or f.x_count == 0:
@@ -333,7 +333,7 @@ def pre_validate_glyph(xvals: list[int], label: str,
             whd = tot / lit
             if whd < check_tol:
                 warnings.append(
-                    f"podobna cislici '{f.ch}' (WHD={whd:.2f}<{check_tol:.2f})")
+                    f"similar to digit '{f.ch}' (WHD={whd:.2f}<{check_tol:.2f})")
                 break
 
     elif label.isdigit():
@@ -350,7 +350,7 @@ def pre_validate_glyph(xvals: list[int], label: str,
             whd = tot / lit
             if whd < check_tol:
                 warnings.append(
-                    f"podobna separatoru '{f.ch}' (WHD={whd:.2f}<{check_tol:.2f})")
+                    f"similar to separator '{f.ch}' (WHD={whd:.2f}<{check_tol:.2f})")
                 break
 
     return warnings
@@ -600,21 +600,21 @@ def validate_region_fonts(frame_bgra: np.ndarray, region: tmmod.Region,
         left_ok = i > 0 and chars[i - 1].isdigit()
         right_ok = i < len(chars) - 1 and chars[i + 1].isdigit()
         if not (left_ok and right_ok):
-            bad_positions[i] = "separator bez cislice po obou stranach"
+            bad_positions[i] = "separator without digit on both sides"
 
     # 2) vicenasobne stejne separatory s nevalidnim seskupenim
     for sep in (',', '.'):
         for idx in _check_grouping(chars, sep):
             if idx not in bad_positions:
-                bad_positions[idx] = f"nevalidni seskupeni cislic kolem '{sep}'"
+                bad_positions[idx] = f"invalid digit grouping around '{sep}'"
 
     # 3) ruzne separatory vedle sebe: ,. nebo .,
     for i in range(len(chars) - 1):
         if chars[i] in SEPARATOR_CHARS and chars[i + 1] in SEPARATOR_CHARS:
             if i not in bad_positions:
-                bad_positions[i] = f"separatory vedle sebe: {chars[i]}{chars[i+1]}"
+                bad_positions[i] = f"adjacent separators: {chars[i]}{chars[i+1]}"
             if (i + 1) not in bad_positions:
-                bad_positions[i + 1] = f"separatory vedle sebe: {chars[i]}{chars[i+1]}"
+                bad_positions[i + 1] = f"adjacent separators: {chars[i]}{chars[i+1]}"
 
     # --- vytvor SuspiciousGlyph pro kazdy bad index ---
     suspicious: list[SuspiciousGlyph] = []
