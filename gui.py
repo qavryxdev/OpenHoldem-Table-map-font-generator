@@ -40,7 +40,8 @@ class LabelDialog(tk.Toplevel):
     def __init__(self, parent: tk.Misc, title: str, preview_rgba: np.ndarray,
                  context_text: str, default: str = "", scale: int = SCALE,
                  save_tm_cb=None,
-                 suggestions: list[tuple[str, float]] | None = None):
+                 suggestions: list[tuple[str, float]] | None = None,
+                 warning: str | None = None):
         super().__init__(parent)
         self.title(title)
         self.resizable(False, False)
@@ -50,6 +51,20 @@ class LabelDialog(tk.Toplevel):
         tk.Label(self, image=self._photo, borderwidth=2, relief="groove").pack(padx=8, pady=8)
         tk.Label(self, text=context_text, justify="left",
                  font=("Consolas", UI_MONO_SIZE)).pack(padx=8, pady=4)
+
+        if warning:
+            wfrm = tk.Frame(self, bg="#fff0f0", relief="ridge", borderwidth=1)
+            wfrm.pack(padx=8, pady=(0, 4), fill="x")
+            tk.Label(wfrm, text="!! RIZIKO MISS-SCRAPU !!",
+                     font=("Consolas", UI_MONO_BOLD_SIZE, "bold"),
+                     fg="#cc0000", bg="#fff0f0").pack(anchor="w", padx=4)
+            tk.Label(wfrm, text=warning, justify="left",
+                     font=("Consolas", UI_MONO_SIZE),
+                     fg="#cc0000", bg="#fff0f0", wraplength=450).pack(
+                         anchor="w", padx=4, pady=(0, 4))
+            tk.Label(wfrm, text="Doporuceni: Skip nebo Discard",
+                     font=("Consolas", UI_MONO_SIZE, "bold"),
+                     fg="#884400", bg="#fff0f0").pack(anchor="w", padx=4, pady=(0, 4))
 
         frm = tk.Frame(self)
         frm.pack(padx=8, pady=4, fill="x")
@@ -631,12 +646,30 @@ class App(tk.Tk):
                 merged[ch] = c
         suggestions = sorted(merged.items(), key=lambda t: t[1], reverse=True)[:3]
         default = suggestions[0][0] if suggestions else ""
+
+        # pre-validace: zkontroluj jestli default label nehrozi miss-scrapem
+        grp = g.font_group
+        tol = learn._font_tolerance(self.table, grp)
+        warn_parts: list[str] = []
+        if default:
+            warn_parts = learn.pre_validate_glyph(
+                g.xvals, default, self.table.fonts[grp], tol)
+        # zkontroluj i ostatni navrhy
+        for ch, _ in suggestions:
+            if ch == default:
+                continue
+            w = learn.pre_validate_glyph(
+                g.xvals, ch, self.table.fonts[grp], tol)
+            if w:
+                warn_parts.extend(f"'{ch}': {m}" for m in w)
+        warning = "\n".join(warn_parts) if warn_parts else None
+
         ctx = (f"region: {g.region}    font group: t{g.font_group}\n"
                f"hexmash: {g.hexmash}\n"
                f"width  : {len(g.xvals)} cols")
         dlg = LabelDialog(self, "New glyph", g.pixels, ctx,
                           default=default, save_tm_cb=self._save,
-                          suggestions=suggestions)
+                          suggestions=suggestions, warning=warning)
         if dlg.result == "__DISCARD__":
             self.discarded_glyphs.add((g.font_group, g.hexmash))
             self.log(f"[-] discarded glyph t{g.font_group}$ hexmash={g.hexmash}")

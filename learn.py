@@ -298,6 +298,64 @@ def add_image(table: tmmod.Tablemap, obs: ImageObservation, name: str) -> bool:
     return True
 
 
+# ---------------- pre-save validation ----------------
+
+def pre_validate_glyph(xvals: list[int], label: str,
+                       fonts: dict[str, 'tmmod.Font'],
+                       tolerance: float) -> list[str]:
+    """Zkontroluj jestli ulozeni tohoto glyphu jako 'label' muze zpusobit
+    miss-scrape. Vraci seznam varovani (prazdny = OK).
+
+    Kontroly:
+    - separator label: podobnost s existujicimi cisilcemi (OH by je zamenovalo)
+    - separator label: neobvykla sirka (sirsi nez typicka carka/tecka)
+    - digit label: podobnost s existujicimi separatory (carka by matchla cislici)
+    """
+    warnings: list[str] = []
+    seg_len = len(xvals)
+    # efektivni tolerance pro krizovou kontrolu
+    check_tol = max(tolerance * VALIDATE_TOLERANCE_BOOST, VALIDATE_MIN_TOLERANCE)
+
+    if label in SEPARATOR_CHARS:
+        # separator by nemel byt sirsi nez TINY_MAX_WIDTH
+        if seg_len > TINY_MAX_WIDTH + 1:
+            warnings.append(
+                f"neobvykle siroky pro '{label}' ({seg_len} cols)")
+        # krizova podobnost: sep vs cislice
+        for f in fonts.values():
+            if not f.ch.isdigit() or f.x_count == 0:
+                continue
+            cmp_len = min(f.x_count, seg_len)
+            tot = sum(_popcount(f.x[j] ^ xvals[j]) for j in range(cmp_len))
+            lit = sum(_popcount(f.x[j]) for j in range(cmp_len))
+            if lit < 1:
+                continue
+            whd = tot / lit
+            if whd < check_tol:
+                warnings.append(
+                    f"podobna cislici '{f.ch}' (WHD={whd:.2f}<{check_tol:.2f})")
+                break
+
+    elif label.isdigit():
+        # krizova podobnost: cislice vs existujici separatory
+        for f in fonts.values():
+            if f.ch not in SEPARATOR_CHARS or f.x_count == 0:
+                continue
+            if f.x_count > seg_len:
+                continue
+            tot = sum(_popcount(f.x[j] ^ xvals[j]) for j in range(f.x_count))
+            lit = sum(_popcount(f.x[j]) for j in range(f.x_count))
+            if lit < 1:
+                continue
+            whd = tot / lit
+            if whd < check_tol:
+                warnings.append(
+                    f"podobna separatoru '{f.ch}' (WHD={whd:.2f}<{check_tol:.2f})")
+                break
+
+    return warnings
+
+
 # ---------------- pruning ----------------
 
 def find_font_collisions(table: tmmod.Tablemap) -> list[tuple[int, str, list[str]]]:
