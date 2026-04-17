@@ -368,6 +368,21 @@ class SuspiciousGlyph:
     mask_preview: np.ndarray
 
 
+def _popcount(v: int) -> int:
+    return bin(v).count("1")
+
+
+def _col_xval(mask: np.ndarray, x: int, y_top: int, y_bot: int) -> int:
+    """Compute column xval using numpy slice — replaces inner y-loop."""
+    bits = mask[x, y_top:y_bot + 1]
+    if not bits.any():
+        return 0
+    # bits[0]=y_top .. bits[-1]=y_bot; OH encodes from y_bot upward
+    n = len(bits)
+    powers = np.int64(1) << np.arange(n - 1, -1, -1, dtype=np.int64)
+    return int(bits.astype(np.int64).dot(powers))
+
+
 def _oh_font_scan(mask: np.ndarray, fonts: dict[str, 'tmmod.Font'],
                   tolerance: float
                   ) -> list[tuple[str, str, int, int, int, int]]:
@@ -381,10 +396,19 @@ def _oh_font_scan(mask: np.ndarray, fonts: dict[str, 'tmmod.Font'],
 
     background = ~mask.any(axis=1)   # bool[W]
 
-    # precompute per-column foreground rows
-    col_fg: list[np.ndarray] = []
+    # precompute per-column y bounds
+    col_top = np.full(W, H, dtype=int)
+    col_bot = np.full(W, -1, dtype=int)
     for x in range(W):
-        col_fg.append(np.where(mask[x, :])[0])
+        fg = np.where(mask[x, :])[0]
+        if len(fg) > 0:
+            col_top[x] = int(fg[0])
+            col_bot[x] = int(fg[-1])
+
+    # precompute font lit-pixel counts (invariant)
+    font_lit: dict[str, int] = {}
+    for hm, f in fonts.items():
+        font_lit[hm] = sum(_popcount(v) for v in f.x)
 
     results: list[tuple[str, str, int, int, int, int]] = []
     pos = 0
@@ -405,31 +429,27 @@ def _oh_font_scan(mask: np.ndarray, fonts: dict[str, 'tmmod.Font'],
             fw = f.x_count
             if fw == 0 or pos + fw > W:
                 continue
-
-            # per-font y bounds — jen ze sloupcu [pos..pos+fw)
-            f_yt = H
-            f_yb = -1
-            for j in range(fw):
-                fg = col_fg[pos + j]
-                if len(fg) > 0:
-                    f_yt = min(f_yt, int(fg[0]))
-                    f_yb = max(f_yb, int(fg[-1]))
-            if f_yb < f_yt:
-                continue
-
-            tot = 0.0
-            lit = 0.0
-            for j in range(fw):
-                xval = 0
-                for y in range(f_yb, f_yt - 1, -1):
-                    if mask[pos + j, y]:
-                        xval |= 1 << (f_yb - y)
-                tot += bin(f.x[j] ^ xval).count("1")
-                lit += bin(f.x[j]).count("1")
+            lit = font_lit[hm]
             if lit < 1:
                 continue
+
+            # per-font y bounds — jen ze sloupcu [pos..pos+fw)
+            sl = slice(pos, pos + fw)
+            tops = col_top[sl]
+            bots = col_bot[sl]
+            valid = bots >= 0
+            if not valid.any():
+                continue
+            f_yt = int(tops[valid].min())
+            f_yb = int(bots[valid].max())
+
+            # compute WHD with numpy-accelerated xval
+            tot = 0
+            for j in range(fw):
+                xval = _col_xval(mask, pos + j, f_yt, f_yb)
+                tot += _popcount(f.x[j] ^ xval)
             whd = tot / lit
-            if (whd == 0.0 or whd < tolerance) and whd < best_hd:
+            if whd < tolerance and whd < best_hd:
                 best_hd = whd
                 best_ch = f.ch
                 best_hm = hm
