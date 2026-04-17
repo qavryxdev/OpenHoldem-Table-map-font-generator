@@ -51,7 +51,7 @@ TINY_MAX_HEIGHT = 5   # vcetne — segment s height<=5 je "tiny"
 # pak nenascrapuje. Tento cap omezi "uz pokryto" rozhodnuti na stricter
 # hodnotu, takze se nasbira vic bitmap a OH si vystaci i pri nizsi tolerance.
 # Efektivni prah = min(TM_tolerance, LEARN_FUZZY_CAP). 0 = bez capu.
-LEARN_FUZZY_CAP = 0.20
+LEARN_FUZZY_CAP = 0.15
 
 _last_debug: dict = {}
 
@@ -285,6 +285,7 @@ def add_glyph(table: tmmod.Tablemap, obs: GlyphObservation, char: str) -> bool:
         return False
     table.fonts[obs.font_group][obs.hexmash] = tmmod.Font(ch=char, x=list(obs.xvals))
     return True
+
 
 
 def add_image(table: tmmod.Tablemap, obs: ImageObservation, name: str) -> bool:
@@ -604,16 +605,17 @@ def validate_region_fonts(frame_bgra: np.ndarray, region: tmmod.Region,
     bad_positions: dict[int, str] = {}
 
     if is_card:
-        # card region: result must be exactly 1 char (rank)
+        # card region: valid results are single char OR "10" (ten)
         if len(chars) > 1:
-            # face card (t/j/q/k/a) followed by extra chars = false match
-            if chars[0].lower() in 'tjqka':
+            # "10" is a valid ten representation — not suspicious
+            if text == "10":
+                pass
+            elif chars[0].lower() in 'tjqka':
                 for i in range(1, len(chars)):
                     bad_positions[i] = (
                         f"extra char '{chars[i]}' after face card "
                         f"'{chars[0]}' (expected only '{chars[0]}')")
             else:
-                # any multi-char result in a card region is suspicious
                 for i in range(1, len(chars)):
                     bad_positions[i] = (
                         f"extra char '{chars[i]}' in card region "
