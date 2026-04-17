@@ -42,13 +42,13 @@ def main() -> int:
     if not path:
         _error_box(
             "OHLearn",
-            "Zadny .tm/.tmn/.osdb2 soubor v adresari:\n  "
+            "No .tm/.tmn/.osdb2 file found in directory:\n  "
             + "\n  ".join(search_dirs)
-            + "\n\nSpust exe z adresare s TM, nebo predaj cestu jako argument."
+            + "\n\nRun the exe from a directory with a TM, or pass the path as an argument."
         )
         return 2
     if not os.path.isfile(path):
-        _error_box("OHLearn", f"Soubor neexistuje:\n{path}")
+        _error_box("OHLearn", f"File does not exist:\n{path}")
         return 2
     print(f"loading {path} ...")
     table = tmmod.load(path)
