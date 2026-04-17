@@ -699,46 +699,52 @@ class App(tk.Tk):
             self.dismissed_suspicious.add(key)
 
     def _validate_after_learn(self, learned_region: str):
-        """Okamzita validace po nauceni noveho glyphu — zachyti frame a
-        zkontroluje vsechny aktivni T regiony jestli novy font nezpusobil
-        false separator match."""
+        """Spusti validaci v background threadu aby neblokovalo UI."""
         if not self.hwnd:
             return
-        try:
-            frame = capture.capture_client(self.hwnd)
-        except Exception:
-            return
-
-        z_target = self.table.sizes.get("targetsize")
-        if z_target:
-            H, W = frame.shape[:2]
-            tw, th = z_target.width, z_target.height
-            if W >= tw and H >= th and (W, H) != (tw, th):
-                x0 = (W - tw) // 2
-                y0 = H - th
-                frame = frame[y0:y0 + th, x0:x0 + tw].copy()
-
+        hwnd = self.hwnd
         active = self._selected_region_names()
-        n_found = 0
-        for r in list(self.table.regions.values()):
-            if r.name not in active:
-                continue
-            if not r.transform or r.transform[0] != "T":
-                continue
+        table = self.table
+        dismissed = self.dismissed_suspicious
+        pending = self.pending_suspicious
+
+        def _bg():
             try:
-                hits = learn.validate_region_fonts(frame, r, self.table)
+                frame = capture.capture_client(hwnd)
             except Exception:
-                continue
-            for sg in hits:
-                key = (sg.font_group, sg.hexmash)
-                if key in self.dismissed_suspicious:
+                return
+            z_target = table.sizes.get("targetsize")
+            if z_target:
+                H, W = frame.shape[:2]
+                tw, th = z_target.width, z_target.height
+                if W >= tw and H >= th and (W, H) != (tw, th):
+                    x0 = (W - tw) // 2
+                    y0 = H - th
+                    frame = frame[y0:y0 + th, x0:x0 + tw].copy()
+            n_found = 0
+            for r in list(table.regions.values()):
+                if r.name not in active:
                     continue
-                if not sg.hexmash or sg.hexmash not in self.table.fonts[sg.font_group]:
+                if not r.transform or r.transform[0] != "T":
                     continue
-                self._handle_suspicious(sg)
-                n_found += 1
-        if n_found:
-            self.log(f"[V] post-learn validace: {n_found} podezrelych separatoru")
+                try:
+                    hits = learn.validate_region_fonts(frame, r, table)
+                except Exception:
+                    continue
+                for sg in hits:
+                    key = (sg.font_group, sg.hexmash)
+                    if key in dismissed or key in pending:
+                        continue
+                    if not sg.hexmash or sg.hexmash not in table.fonts[sg.font_group]:
+                        continue
+                    pending.add(key)
+                    self.msg_q.put(("suspicious", sg))
+                    n_found += 1
+            if n_found:
+                self.msg_q.put(("log",
+                    f"[V] post-learn validace: {n_found} podezrelych separatoru"))
+
+        threading.Thread(target=_bg, daemon=True).start()
 
     # ---------- save / prune ----------
 
