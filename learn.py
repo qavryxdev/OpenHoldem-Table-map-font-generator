@@ -401,9 +401,14 @@ def remove_font(table: tmmod.Tablemap, group: int, hexmash: str) -> bool:
     return False
 
 
-# ---------------- separator validation ----------------
+# ---------------- scrape validation ----------------
 
 SEPARATOR_CHARS = frozenset({',', '.'})
+FACE_CARDS = frozenset('tTjJqQkKaA')
+
+
+def _is_card_region(name: str) -> bool:
+    return 'card' in name.lower()
 
 # Validace pouziva vyssi toleranci nez TM, aby odchytila borderline matche
 # ktere se pri mirne zmene renderingu mohou "preklopit".
@@ -582,46 +587,70 @@ def validate_region_fonts(frame_bgra: np.ndarray, region: tmmod.Region,
     tol = max(raw_tol * VALIDATE_TOLERANCE_BOOST, VALIDATE_MIN_TOLERANCE)
 
     scan = _oh_font_scan(mask, fonts, tol)
-    if len(scan) < 2:
+    if not scan:
+        return []
+    is_card = _is_card_region(region.name)
+    # balance regions need at least 2 segments; card regions need >1 to be invalid
+    if not is_card and len(scan) < 2:
         return []
 
     chars = [ch for ch, _, _, _, _, _ in scan]
     text = ''.join(chars)
-    if not any(c.isdigit() for c in text):
+
+    if not is_card and not any(c.isdigit() for c in text):
         return []
 
-    # --- sbírej podezrele pozice ---
+    # --- collect suspicious positions ---
     bad_positions: dict[int, str] = {}
 
-    # 1) separator bez cislice po obou stranach
-    for i, ch in enumerate(chars):
-        if ch not in SEPARATOR_CHARS:
-            continue
-        left_ok = i > 0 and chars[i - 1].isdigit()
-        right_ok = i < len(chars) - 1 and chars[i + 1].isdigit()
-        if not (left_ok and right_ok):
-            bad_positions[i] = "separator without digit on both sides"
+    if is_card:
+        # card region: result must be exactly 1 char (rank)
+        if len(chars) > 1:
+            # face card (t/j/q/k/a) followed by extra chars = false match
+            if chars[0].lower() in 'tjqka':
+                for i in range(1, len(chars)):
+                    bad_positions[i] = (
+                        f"extra char '{chars[i]}' after face card "
+                        f"'{chars[0]}' (expected only '{chars[0]}')")
+            else:
+                # any multi-char result in a card region is suspicious
+                for i in range(1, len(chars)):
+                    bad_positions[i] = (
+                        f"extra char '{chars[i]}' in card region "
+                        f"(expected single char, got '{text}')")
+    else:
+        # --- balance/bet region separator checks ---
 
-    # 2) vicenasobne stejne separatory s nevalidnim seskupenim
-    for sep in (',', '.'):
-        for idx in _check_grouping(chars, sep):
-            if idx not in bad_positions:
-                bad_positions[idx] = f"invalid digit grouping around '{sep}'"
+        # 1) separator without digit on both sides
+        for i, ch in enumerate(chars):
+            if ch not in SEPARATOR_CHARS:
+                continue
+            left_ok = i > 0 and chars[i - 1].isdigit()
+            right_ok = i < len(chars) - 1 and chars[i + 1].isdigit()
+            if not (left_ok and right_ok):
+                bad_positions[i] = "separator without digit on both sides"
 
-    # 3) ruzne separatory vedle sebe: ,. nebo .,
-    for i in range(len(chars) - 1):
-        if chars[i] in SEPARATOR_CHARS and chars[i + 1] in SEPARATOR_CHARS:
-            if i not in bad_positions:
-                bad_positions[i] = f"adjacent separators: {chars[i]}{chars[i+1]}"
-            if (i + 1) not in bad_positions:
-                bad_positions[i + 1] = f"adjacent separators: {chars[i]}{chars[i+1]}"
+        # 2) multiple same separators with invalid grouping
+        for sep in (',', '.'):
+            for idx in _check_grouping(chars, sep):
+                if idx not in bad_positions:
+                    bad_positions[idx] = f"invalid digit grouping around '{sep}'"
 
-    # --- vytvor SuspiciousGlyph pro kazdy bad index ---
+        # 3) adjacent separators: ,. or .,
+        for i in range(len(chars) - 1):
+            if chars[i] in SEPARATOR_CHARS and chars[i + 1] in SEPARATOR_CHARS:
+                if i not in bad_positions:
+                    bad_positions[i] = f"adjacent separators: {chars[i]}{chars[i+1]}"
+                if (i + 1) not in bad_positions:
+                    bad_positions[i + 1] = f"adjacent separators: {chars[i]}{chars[i+1]}"
+
+    # --- create SuspiciousGlyph for each bad index ---
     suspicious: list[SuspiciousGlyph] = []
     H = crop.shape[0]
     for i, reason in sorted(bad_positions.items()):
         ch, hm, x0, x1, y_top, y_bot = scan[i]
-        if ch not in SEPARATOR_CHARS:
+        # for non-card regions only flag separators; for card regions flag any char
+        if not is_card and ch not in SEPARATOR_CHARS:
             continue
         y0c = max(0, y_top)
         y1c = min(H, y_bot + 1)
