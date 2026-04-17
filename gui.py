@@ -460,6 +460,23 @@ class App(tk.Tk):
             messagebox.showwarning("ohlearn", "Select a poker window first.")
             return
         self.hwnd = self._wins_list[idx][0]
+
+        active = self._selected_region_names()
+        has_card = any(
+            learn._is_card_region(n)
+            for n in active
+            if n in self.table.regions
+        )
+        if has_card:
+            messagebox.showinfo(
+                "Card region — ten ('10') tip",
+                "For tens: use '1' and '0' as separate labels, then verify\n"
+                "in OpenScrape that the card region scrapes correctly.\n\n"
+                "Do NOT use 't' or 'T' here — OpenHoldem expects the\n"
+                "individual '1' and '0' bitmaps for card ten recognition.\n\n"
+                "For face cards (J/Q/K/A) use single lowercase letter\n"
+                "(j, q, k, a).")
+
         self.running = True
         self.start_btn.configure(text="Stop")
         self.worker = threading.Thread(target=self._worker_loop, daemon=True)
@@ -681,6 +698,7 @@ class App(tk.Tk):
         label = dlg.result[0]  # OH fonts store a single char
         learn.add_glyph(self.table, g, label)
         self.log(f"[+] t{g.font_group}${label}  hexmash={g.hexmash}")
+
         self._update_stats()
         self._refresh_region_markers()
         self._validate_after_learn(g.region)
