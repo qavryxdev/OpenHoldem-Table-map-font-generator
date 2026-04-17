@@ -118,6 +118,69 @@ UI_MONO_SIZE = 12        # Consolas-based labels / logs / region list
 UI_MONO_BOLD_SIZE = 13   # OCR suggestion buttons (bold)
 
 
+class ValidationDialog(tk.Toplevel):
+    """Modal dialog showing a suspicious separator bitmap and offering deletion."""
+
+    def __init__(self, parent: tk.Misc, sg: learn.SuspiciousGlyph,
+                 save_tm_cb=None):
+        super().__init__(parent)
+        self.title("Podezrela bitmapa separatoru")
+        self.resizable(False, False)
+        self.result: str | None = None  # "delete" / "keep" / None(skip)
+        self._save_tm_cb = save_tm_cb
+
+        self._photo = _pil_from_rgba(sg.pixels, SCALE)
+        tk.Label(self, image=self._photo, borderwidth=2,
+                 relief="groove").pack(padx=8, pady=8)
+
+        ctx = (f"Region: {sg.region}    font group: t{sg.font_group}\n"
+               f"Bitmapa matchla jako: '{sg.matched_char}'\n"
+               f"Hexmash: {sg.hexmash}\n"
+               f"\n"
+               f"Naskrapovany text:  {sg.scraped_text}\n"
+               f"Problem: {sg.reason}")
+        tk.Label(self, text=ctx, justify="left",
+                 font=("Consolas", UI_MONO_SIZE),
+                 fg="#cc0000").pack(padx=8, pady=4)
+
+        btns = tk.Frame(self)
+        btns.pack(padx=8, pady=8)
+        tk.Button(btns, text="Smazat bitmapu", fg="red",
+                  command=self._delete).pack(side="left", padx=4)
+        tk.Button(btns, text="Ponechat",
+                  command=self._keep).pack(side="left", padx=4)
+        tk.Button(btns, text="Preskocit (Esc)",
+                  command=self._skip).pack(side="left", padx=4)
+        if save_tm_cb is not None:
+            tk.Button(btns, text="Save TM (Ctrl+S)",
+                      command=self._save_tm).pack(side="left", padx=12)
+        self.bind("<Escape>", lambda _e: self._skip())
+        self.bind("<Control-s>", lambda _e: self._save_tm())
+
+        self.transient(parent)
+        self.attributes("-topmost", True)
+        self.lift()
+        self.after(10, lambda: self.focus_force())
+        self.protocol("WM_DELETE_WINDOW", self._skip)
+        self.wait_window(self)
+
+    def _delete(self):
+        self.result = "delete"
+        self.destroy()
+
+    def _keep(self):
+        self.result = "keep"
+        self.destroy()
+
+    def _skip(self):
+        self.result = None
+        self.destroy()
+
+    def _save_tm(self):
+        if self._save_tm_cb is not None:
+            self._save_tm_cb()
+
+
 class App(tk.Tk):
     def __init__(self, table: tmmod.Tablemap):
         super().__init__()
@@ -134,6 +197,8 @@ class App(tk.Tk):
         self.pending_glyphs: set[tuple[int, str]] = set()    # already in msg_q
         self.pending_images: set[tuple[int, int, bytes]] = set()
         self.image_name_counter = 0
+        self.dismissed_suspicious: set[tuple[int, str]] = set()  # (group, hexmash) kept/skipped
+        self.pending_suspicious: set[tuple[int, str]] = set()
 
         self._build_ui()
         self._refresh_windows()
@@ -385,8 +450,11 @@ class App(tk.Tk):
         self.worker = threading.Thread(target=self._worker_loop, daemon=True)
         self.worker.start()
 
+    VALIDATE_INTERVAL = 60.0
+
     def _worker_loop(self):
         interval = 1.0
+        last_validate = 0.0
         while self.running:
             # pausni sbirani kdyz uz je ve fronte hodne cekajicich dialogu
             if self.msg_q.qsize() > 20:
@@ -443,6 +511,11 @@ class App(tk.Tk):
             self.msg_q.put(("log",
                 f"cycle: {n_t} T regionu, {n_t_dialogs} new glyphs to label"))
 
+            now = time.time()
+            if now - last_validate >= self.VALIDATE_INTERVAL:
+                last_validate = now
+                self._run_validation(frame, active)
+
             time.sleep(interval)
 
     def _process_region(self, frame, r) -> tuple[int, int]:
@@ -471,6 +544,7 @@ class App(tk.Tk):
                 f"existing={d.get('n_existing',0):3d} "
                 f"skip_exact={d.get('skipped_exact',0)} "
                 f"skip_fuzzy={d.get('skipped_fuzzy',0)} "
+                f"skip_tiny={d.get('skipped_tiny',0)} "
                 f"new={len(glyphs)} {tol_str} "
                 f"cube=0x{r.color:08x}/{r.radius}"))
         for g in glyphs:
@@ -491,6 +565,36 @@ class App(tk.Tk):
             self.msg_q.put(("image", im))
         return n_t, n_new
 
+    def _run_validation(self, frame, active_regions: set[str]):
+        """Periodicka kontrola: trial-scrape T regionu, hledej separatory
+        bez cislic po obou stranach."""
+        n_found = 0
+        for r in list(self.table.regions.values()):
+            if not self.running:
+                break
+            if r.name not in active_regions:
+                continue
+            if not r.transform or r.transform[0] != "T":
+                continue
+            try:
+                hits = learn.validate_region_fonts(frame, r, self.table)
+            except Exception:
+                continue
+            for sg in hits:
+                key = (sg.font_group, sg.hexmash)
+                if key in self.dismissed_suspicious or key in self.pending_suspicious:
+                    continue
+                if sg.hexmash and sg.hexmash not in self.table.fonts[sg.font_group]:
+                    continue
+                self.pending_suspicious.add(key)
+                self.msg_q.put(("suspicious", sg))
+                n_found += 1
+        if n_found:
+            self.msg_q.put(("log",
+                f"[V] validace: nalezeno {n_found} podezrelych separatoru"))
+        else:
+            self.msg_q.put(("log", "[V] validace: OK"))
+
     # ---------- message pump (main thread) ----------
 
     def _pump_messages(self):
@@ -503,6 +607,8 @@ class App(tk.Tk):
                     self._handle_glyph(payload)
                 elif kind == "image":
                     self._handle_image(payload)
+                elif kind == "suspicious":
+                    self._handle_suspicious(payload)
         except queue.Empty:
             pass
         self.after(100, self._pump_messages)
@@ -569,6 +675,27 @@ class App(tk.Tk):
         self.log(f"[+] i${dlg.result}  {im.width}x{im.height}")
         self._update_stats()
         self._refresh_region_markers()
+
+    def _handle_suspicious(self, sg: learn.SuspiciousGlyph):
+        key = (sg.font_group, sg.hexmash)
+        self.pending_suspicious.discard(key)
+        if key in self.dismissed_suspicious:
+            return
+        if not sg.hexmash or sg.hexmash not in self.table.fonts[sg.font_group]:
+            return
+        dlg = ValidationDialog(self, sg, save_tm_cb=self._save)
+        if dlg.result == "delete":
+            learn.remove_font(self.table, sg.font_group, sg.hexmash)
+            self.log(f"[V] SMAZANO t{sg.font_group}$'{sg.matched_char}' "
+                     f"hexmash={sg.hexmash}  (text byl: {sg.scraped_text})")
+            self._update_stats()
+            self._refresh_region_markers()
+        elif dlg.result == "keep":
+            self.dismissed_suspicious.add(key)
+            self.log(f"[V] ponechano t{sg.font_group}$'{sg.matched_char}' "
+                     f"hexmash={sg.hexmash}")
+        else:
+            self.dismissed_suspicious.add(key)
 
     # ---------- save / prune ----------
 

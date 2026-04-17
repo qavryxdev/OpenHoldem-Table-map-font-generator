@@ -37,6 +37,14 @@ class ImageObservation:
 DEFAULT_FUZZY_TOLERANCE = 0.05      # OH default
 IMAGE_MATCH_FRACTION = 0.65         # OH ITypeTransform: 65% pixel threshold
 
+# Tiny-glyph filter: segment sirsi nez TINY_MAX_WIDTH sloupcu nebo vyssi
+# nez TINY_MAX_HEIGHT radku se povazuje za "normalni" (cislice, pismeno).
+# Segmenty mensi nez oba prahy jsou "tiny" (carka, tecka, artefakt) a
+# nabidnou se k uceni JEN kdyz ve stejnem regionu existuje aspoň jeden
+# normalni segment — tj. carka je soucasti textoveho pasu s cisly.
+TINY_MAX_WIDTH = 4    # vcetne — segment s width<=4 je "tiny"
+TINY_MAX_HEIGHT = 5   # vcetne — segment s height<=5 je "tiny"
+
 # Cap na toleranci pri UCENI. TM muze mit s$tNtype=0.35, ale OH/OpenScrape
 # uzivatel casto jede na stricter pragu (~0.20). Kdyz learner pouzije raw
 # 0.35, preskoci varianty, ktere by pri 0.20 prahu uz nezmatchly — a OH je
@@ -190,6 +198,18 @@ def observe_region(frame_bgra: np.ndarray, region: tmmod.Region,
         existing = table.fonts[group]
         tm_tol = _font_tolerance(table, group)
         fuzzy_tol = _learn_tolerance(table, group)
+
+        # tiny-glyph filter: rozdelime segmenty na normalni a tiny
+        def _is_tiny(s: tx.CharSegment) -> bool:
+            w = s.x_end - s.x_begin + 1
+            h = s.y_end - s.y_begin + 1
+            return w <= TINY_MAX_WIDTH and h <= TINY_MAX_HEIGHT
+
+        has_normal = any(not _is_tiny(s) for s in segs)
+        n_tiny_skipped = 0
+        if not has_normal:
+            n_tiny_skipped = sum(1 for s in segs if _is_tiny(s))
+
         _last_debug["region"] = region.name
         _last_debug["mask_px"] = int(mask.sum())
         _last_debug["n_segs"] = len(segs)
@@ -198,11 +218,15 @@ def observe_region(frame_bgra: np.ndarray, region: tmmod.Region,
         _last_debug["learn_tol"] = fuzzy_tol
         _last_debug["skipped_exact"] = 0
         _last_debug["skipped_fuzzy"] = 0
+        _last_debug["skipped_tiny"] = n_tiny_skipped
         W_region = crop.shape[1]
         H_region = crop.shape[0]
         region_area = W_region * H_region
         mask_density = (mask.sum() / region_area) if region_area else 0.0
         for s in segs:
+            # tiny segment bez kontextu (zadna normalni cislice v regionu) = sum
+            if _is_tiny(s) and not has_normal:
+                continue
             seg_w = s.x_end - s.x_begin + 1
             # reject "whole-region blob" — zly cube matchnul pozadi
             if seg_w > 0.85 * W_region and mask_density > 0.5:
@@ -317,6 +341,228 @@ def remove_font(table: tmmod.Tablemap, group: int, hexmash: str) -> bool:
     if 0 <= group < tmmod.N_FONT_GROUPS:
         return table.fonts[group].pop(hexmash, None) is not None
     return False
+
+
+# ---------------- separator validation ----------------
+
+SEPARATOR_CHARS = frozenset({',', '.'})
+
+# Validace pouziva vyssi toleranci nez TM, aby odchytila borderline matche
+# ktere se pri mirne zmene renderingu mohou "preklopit".
+VALIDATE_TOLERANCE_BOOST = 1.50
+# Minimalni tolerance pro validaci — i kdyz TM deklaruje exact matching,
+# validace vzdy zkusi aspon tento prah aby odhalila potencialni false matche.
+VALIDATE_MIN_TOLERANCE = 0.10
+
+
+@dataclass
+class SuspiciousGlyph:
+    region: str
+    font_group: int
+    hexmash: str | None
+    matched_char: str
+    scraped_text: str
+    char_index: int
+    reason: str
+    pixels: np.ndarray
+    mask_preview: np.ndarray
+
+
+def _oh_font_scan(mask: np.ndarray, fonts: dict[str, 'tmmod.Font'],
+                  tolerance: float
+                  ) -> list[tuple[str, str, int, int, int, int]]:
+    """OH-verna simulace DoPlainFontScan: na kazde pozici zkusi vsechny fonty
+    a vybere nejlepsi match. Y bounds se pocitaji PER-FONT (jen ze sloupcu
+    ktere font pokryva), presne jako OH GetShiftLeftDownIndexes + CalcHexmash.
+    Vraci [(char, hexmash, x0, x1, y_top, y_bot)]."""
+    W, H = mask.shape   # mask je [W, H] (column-major)
+    if W < 2 or H < 2 or not fonts:
+        return []
+
+    background = ~mask.any(axis=1)   # bool[W]
+
+    # precompute per-column foreground rows
+    col_fg: list[np.ndarray] = []
+    for x in range(W):
+        col_fg.append(np.where(mask[x, :])[0])
+
+    results: list[tuple[str, str, int, int, int, int]] = []
+    pos = 0
+
+    while pos < W:
+        if background[pos]:
+            pos += 1
+            continue
+
+        best_ch: str | None = None
+        best_hm: str | None = None
+        best_hd = 999999.0
+        best_w = 0
+        best_yt = 0
+        best_yb = 0
+
+        for hm, f in fonts.items():
+            fw = f.x_count
+            if fw == 0 or pos + fw > W:
+                continue
+
+            # per-font y bounds — jen ze sloupcu [pos..pos+fw)
+            f_yt = H
+            f_yb = -1
+            for j in range(fw):
+                fg = col_fg[pos + j]
+                if len(fg) > 0:
+                    f_yt = min(f_yt, int(fg[0]))
+                    f_yb = max(f_yb, int(fg[-1]))
+            if f_yb < f_yt:
+                continue
+
+            tot = 0.0
+            lit = 0.0
+            for j in range(fw):
+                xval = 0
+                for y in range(f_yb, f_yt - 1, -1):
+                    if mask[pos + j, y]:
+                        xval |= 1 << (f_yb - y)
+                tot += bin(f.x[j] ^ xval).count("1")
+                lit += bin(f.x[j]).count("1")
+            if lit < 1:
+                continue
+            whd = tot / lit
+            if (whd == 0.0 or whd < tolerance) and whd < best_hd:
+                best_hd = whd
+                best_ch = f.ch
+                best_hm = hm
+                best_w = fw
+                best_yt = f_yt
+                best_yb = f_yb
+
+        if best_ch is not None:
+            results.append((best_ch, best_hm, pos, pos + best_w - 1,
+                            best_yt, best_yb))
+            pos += best_w
+        else:
+            pos += 1
+
+    return results
+
+
+def _check_grouping(chars: list[str], sep: str) -> set[int]:
+    """Zkontroluj jestli skupiny cislic mezi separatory 'sep' davaji smysl.
+    Vraci mnozinu INDEXU separatoru ktere jsou podezrele.
+
+    Validni formaty:
+      - jediny separator: cokoliv (12,5  nebo  1.234)
+      - 2+ stejnych separatoru: tisicovy format — prvni skupina 1-3 cislice,
+        vsechny dalsi skupiny presne 3 cislice (1,234,567)
+    """
+    sep_positions = [i for i, ch in enumerate(chars) if ch == sep]
+    if len(sep_positions) < 2:
+        return set()
+
+    boundaries = [-1] + sep_positions + [len(chars)]
+    bad: set[int] = set()
+    for gi in range(len(boundaries) - 1):
+        start = boundaries[gi] + 1
+        end = boundaries[gi + 1]
+        group = chars[start:end]
+        group_digits = all(c.isdigit() for c in group)
+        glen = len(group)
+        if gi == 0:
+            if not group_digits or glen < 1 or glen > 3:
+                bad.update(sep_positions)
+        else:
+            if not group_digits or glen != 3:
+                bad.update(sep_positions)
+    return bad
+
+
+def validate_region_fonts(frame_bgra: np.ndarray, region: tmmod.Region,
+                          table: 'tmmod.Tablemap') -> list[SuspiciousGlyph]:
+    """OH-verna trial-scrape regionu s mirne zvysenou toleranci. Pouziva
+    font-lookup scanning (jako OH DoPlainFontScan), ne blob segmentaci.
+    Kontroly:
+    1) separator bez cislice po obou stranach
+    2) vicenasobny stejny separator s nevalidnim seskupenim (napr. 2,6,601)
+    3) ruzne separatory vedle sebe (.,  ,.)
+    """
+    crop = frame_bgra[region.top:region.bottom + 1, region.left:region.right + 1]
+    if crop.size == 0:
+        return []
+    t = region.transform
+    if not t or t[0] != "T":
+        return []
+    group = int(t[1]) if len(t) > 1 and t[1].isdigit() else 0
+    mask = tx.build_char_mask(crop, region.color, region.radius)
+    region_area = max(1, crop.shape[0] * crop.shape[1])
+    if mask.sum() / region_area > 0.9:
+        return []
+    fonts = table.fonts[group]
+    if not fonts:
+        return []
+    raw_tol = _font_tolerance(table, group)
+    tol = max(raw_tol * VALIDATE_TOLERANCE_BOOST, VALIDATE_MIN_TOLERANCE)
+
+    scan = _oh_font_scan(mask, fonts, tol)
+    if len(scan) < 2:
+        return []
+
+    chars = [ch for ch, _, _, _, _, _ in scan]
+    text = ''.join(chars)
+    if not any(c.isdigit() for c in text):
+        return []
+
+    # --- sbírej podezrele pozice ---
+    bad_positions: dict[int, str] = {}
+
+    # 1) separator bez cislice po obou stranach
+    for i, ch in enumerate(chars):
+        if ch not in SEPARATOR_CHARS:
+            continue
+        left_ok = i > 0 and chars[i - 1].isdigit()
+        right_ok = i < len(chars) - 1 and chars[i + 1].isdigit()
+        if not (left_ok and right_ok):
+            bad_positions[i] = "separator bez cislice po obou stranach"
+
+    # 2) vicenasobne stejne separatory s nevalidnim seskupenim
+    for sep in (',', '.'):
+        for idx in _check_grouping(chars, sep):
+            if idx not in bad_positions:
+                bad_positions[idx] = f"nevalidni seskupeni cislic kolem '{sep}'"
+
+    # 3) ruzne separatory vedle sebe: ,. nebo .,
+    for i in range(len(chars) - 1):
+        if chars[i] in SEPARATOR_CHARS and chars[i + 1] in SEPARATOR_CHARS:
+            if i not in bad_positions:
+                bad_positions[i] = f"separatory vedle sebe: {chars[i]}{chars[i+1]}"
+            if (i + 1) not in bad_positions:
+                bad_positions[i + 1] = f"separatory vedle sebe: {chars[i]}{chars[i+1]}"
+
+    # --- vytvor SuspiciousGlyph pro kazdy bad index ---
+    suspicious: list[SuspiciousGlyph] = []
+    H = crop.shape[0]
+    for i, reason in sorted(bad_positions.items()):
+        ch, hm, x0, x1, y_top, y_bot = scan[i]
+        if ch not in SEPARATOR_CHARS:
+            continue
+        y0c = max(0, y_top)
+        y1c = min(H, y_bot + 1)
+        glyph_rgba = tx.region_to_rgba_array(crop[y0c:y1c, x0:x1 + 1])
+        sub_mask = mask[x0:x1 + 1, y0c:y1c].T
+        marked = list(text)
+        marked[i] = f'[{marked[i]}]'
+        suspicious.append(SuspiciousGlyph(
+            region=region.name,
+            font_group=group,
+            hexmash=hm,
+            matched_char=ch,
+            scraped_text=''.join(marked),
+            char_index=i,
+            reason=reason,
+            pixels=glyph_rgba,
+            mask_preview=sub_mask,
+        ))
+    return suspicious
 
 
 # ---------------- auto color/radius tuning ----------------
