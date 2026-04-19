@@ -262,7 +262,8 @@ def observe_region(frame_bgra: np.ndarray, region: tmmod.Region,
         obs_flat = rgba
         match: str | None = None
         near: list[tuple[str, int]] = []
-        for name, img in table.images.items():
+        for img in table.images:
+            name = img.name
             if img.width != w or img.height != h:
                 continue
             existing_arr = np.array(img.pixels, dtype=np.uint8).reshape((h, w, 4))
@@ -289,13 +290,13 @@ def add_glyph(table: tmmod.Tablemap, obs: GlyphObservation, char: str) -> bool:
 
 
 def add_image(table: tmmod.Tablemap, obs: ImageObservation, name: str) -> bool:
-    if name in table.images:
+    if any(i.name == name for i in table.images):
         return False
     pixels = [tuple(px) for px in obs.pixels.reshape(-1, 4).tolist()]
     pixels = [(int(r), int(g), int(b), int(a)) for r, g, b, a in pixels]
-    table.images[name] = tmmod.Image(
+    table.images.append(tmmod.Image(
         name=name, width=obs.width, height=obs.height, pixels=pixels,
-    )
+    ))
     return True
 
 
@@ -377,23 +378,28 @@ def find_font_collisions(table: tmmod.Tablemap) -> list[tuple[int, str, list[str
 def find_duplicate_images(table: tmmod.Tablemap, tol_px: int = 0) -> list[tuple[str, str, int]]:
     """Find (name_a, name_b, diff_px) image pairs of same size within tol."""
     dups: list[tuple[str, str, int]] = []
-    by_size: dict[tuple[int, int], list[str]] = {}
-    for name, img in table.images.items():
-        by_size.setdefault((img.width, img.height), []).append(name)
-    for (w, h), names in by_size.items():
-        arrs = {n: np.array(table.images[n].pixels, dtype=np.uint8).reshape((h, w, 4))
-                for n in names}
-        for i in range(len(names)):
-            for j in range(i + 1, len(names)):
-                a, b = names[i], names[j]
-                d = tx.image_diff_count(arrs[a], arrs[b], 0)
+    by_size: dict[tuple[int, int], list[int]] = {}
+    for idx, img in enumerate(table.images):
+        by_size.setdefault((img.width, img.height), []).append(idx)
+    for (w, h), idxs in by_size.items():
+        arrs = [np.array(table.images[k].pixels, dtype=np.uint8).reshape((h, w, 4))
+                for k in idxs]
+        for i in range(len(idxs)):
+            for j in range(i + 1, len(idxs)):
+                a_name = table.images[idxs[i]].name
+                b_name = table.images[idxs[j]].name
+                d = tx.image_diff_count(arrs[i], arrs[j], 0)
                 if d <= tol_px:
-                    dups.append((a, b, d))
+                    dups.append((a_name, b_name, d))
     return dups
 
 
 def remove_image(table: tmmod.Tablemap, name: str) -> bool:
-    return table.images.pop(name, None) is not None
+    for idx, img in enumerate(table.images):
+        if img.name == name:
+            del table.images[idx]
+            return True
+    return False
 
 
 def remove_font(table: tmmod.Tablemap, group: int, hexmash: str) -> bool:
